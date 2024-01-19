@@ -36,7 +36,7 @@ function physical_quantities_from_inputs(Ri, α)
 
 end
 
-function run_sim(Ri, α, label, resolution)
+function run_sim(Ri, α, label, resolution, use_GPU)
 
     ########## ADD GPU!!!! ##########
 
@@ -48,7 +48,11 @@ function run_sim(Ri, α, label, resolution)
     duration = p.T * 40
 
     # Build the grid
-    grid = RectilinearGrid(size = resolution, x = (0, domain.x), y = (0, domain.y), z = (-domain.z, 0), topology = (Periodic, Periodic, Bounded))
+    if use_GPU
+        grid = RectilinearGrid(GPU(), size = resolution, x = (0, domain.x), y = (0, domain.y), z = (-domain.z, 0), topology = (Periodic, Periodic, Bounded))
+    else
+        grid = RectilinearGrid(size = resolution, x = (0, domain.x), y = (0, domain.y), z = (-domain.z, 0), topology = (Periodic, Periodic, Bounded))
+    end
 
     # Set the diffusivities and background fields
     B_field = BackgroundField(background.B)

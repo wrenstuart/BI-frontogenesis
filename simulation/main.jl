@@ -3,6 +3,7 @@
 log_Ris = [0]
 log_αs = [2]
 resolution = (128, 128, 16)
+use_GPU = false
 
 include("loop_sims.jl")
-loop_sims(log_Ris, log_αs, resolution)
+loop_sims(log_Ris, log_αs, resolution, use_GPU)
