@@ -49,7 +49,7 @@ function run_sim(Ri, α, label, resolution)
     duration = p.T * 40
 
     # Build the grid
-    if use_GPU()
+    if oceananigans_use_GPU()
         grid = RectilinearGrid(GPU(), size = resolution, x = (0, domain.x), y = (0, domain.y), z = (-domain.z, 0), topology = (Periodic, Periodic, Bounded))
     else
         grid = RectilinearGrid(size = resolution, x = (0, domain.x), y = (0, domain.y), z = (-domain.z, 0), topology = (Periodic, Periodic, Bounded))
