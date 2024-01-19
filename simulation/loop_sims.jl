@@ -3,7 +3,7 @@
 include("../QOL.jl")
 include("sim.jl")
 
-function loop_sims(log_Ris, log_αs, resolution, use_GPU)
+function loop_sims(log_Ris, log_αs, resolution)
     for i₁ = 1 : length(log_Ris)
         for i₂ = 1 : length(log_αs)
             log_Ri = log_Ris[i₁]
@@ -11,7 +11,7 @@ function loop_sims(log_Ris, log_αs, resolution, use_GPU)
             Ri = 10 ^ log_Ri
             α = 10 ^ log_α
             label = get_label(log_Ri, log_α)
-            run_sim(Ri, α, label, resolution, use_GPU)
+            run_sim(Ri, α, label, resolution)
         end
     end
 end

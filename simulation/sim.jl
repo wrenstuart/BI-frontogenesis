@@ -4,6 +4,7 @@ using Oceananigans
 using Printf
 
 include("../QOL.jl")
+include("use_GPU.jl")
 
 function physical_quantities_from_inputs(Ri, α)
 
@@ -36,7 +37,7 @@ function physical_quantities_from_inputs(Ri, α)
 
 end
 
-function run_sim(Ri, α, label, resolution, use_GPU)
+function run_sim(Ri, α, label, resolution)
 
     ########## ADD GPU!!!! ##########
 
@@ -48,7 +49,7 @@ function run_sim(Ri, α, label, resolution, use_GPU)
     duration = p.T * 40
 
     # Build the grid
-    if use_GPU
+    if use_GPU()
         grid = RectilinearGrid(GPU(), size = resolution, x = (0, domain.x), y = (0, domain.y), z = (-domain.z, 0), topology = (Periodic, Periodic, Bounded))
     else
         grid = RectilinearGrid(size = resolution, x = (0, domain.x), y = (0, domain.y), z = (-domain.z, 0), topology = (Periodic, Periodic, Bounded))
