@@ -1,3 +1,3 @@
 .vscode/settings.json
 *.jld2
-sim/use_GPU.jl
+simulation/use_GPU.jl
