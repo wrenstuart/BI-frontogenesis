@@ -1,18 +1,22 @@
 # For generating strings to label simulations based on their parameters
 
-function get_label(log_Ri, log_α)
-    return "_Ri_" * string(log_Ri) * "_α_" * string(log_α)
+function get_label(log_Ri, log_s)
+    return "_Ri_" * string(log_Ri) * "_s_" * string(log_s)
 end
 
-function get_scales(Ri, α)
+function get_scales(Ri, s)
+
+    # Ri = N²f²/M⁴
+    # s = N²/f²
 
     # Set some dimensional parameters
     H = 50      # depth of the mixed layer (WLOG)
     f = 1e-4    # Coriolis parameter (WLOG)
 
     # Calculate the other non-dimensional parameters
+    α = (s * Ri) ^ 0.5  # N²/M²
     s = α^2 / Ri        # N²/f²
-    λ = α / Ri          # M²/f²
+    λ = s / α           # M²/f²
     Ro₀ = Ri ^ -0.5     # The initial Rossby number
 
     # Calculate the other dimensional parameters and scales

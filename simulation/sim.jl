@@ -4,12 +4,12 @@ using Oceananigans
 using Printf
 
 include("../QOL.jl")
-include("use_GPU.jl")
+include("simulation_parameters.jl")
 
-function physical_quantities_from_inputs(Ri, α)
+function physical_quantities_from_inputs(Ri, s)
 
     # Get the dimensional parameters of the problem
-    p = get_scales(Ri, α)
+    p = get_scales(Ri, s)
 
     # Set the viscosities
     ν_h = 1e-4
@@ -37,19 +37,19 @@ function physical_quantities_from_inputs(Ri, α)
 
 end
 
-function run_sim(Ri, α, label, resolution)
+function run_sim(Ri, s, label)
 
-    ########## ADD GPU!!!! ##########
+    resolution = sim_params().res
 
-    p, domain, ic, background, ν = physical_quantities_from_inputs(Ri, α)
+    p, domain, ic, background, ν = physical_quantities_from_inputs(Ri, s)
     # Here, p holds the physical parameters
 
     # Set the time-stepping parameters
-    max_Δt = minimum([p.T/10, 0.5 * pi / (p.N²^0.5)])
+    max_Δt = minimum([p.T/10, 0.85 * pi / (p.N²^0.5)])
     duration = p.T * 40
 
     # Build the grid
-    if oceananigans_use_GPU()
+    if sim_params().GPU
         grid = RectilinearGrid(GPU(), size = resolution, x = (0, domain.x), y = (0, domain.y), z = (-domain.z, 0), topology = (Periodic, Periodic, Bounded))
     else
         grid = RectilinearGrid(size = resolution, x = (0, domain.x), y = (0, domain.y), z = (-domain.z, 0), topology = (Periodic, Periodic, Bounded))
@@ -158,6 +158,7 @@ function run_sim(Ri, α, label, resolution)
     nothing # hide
 
     # Now, run the simulation
+    @printf("Simulation will last %s\n", prettytime(duration))
     run!(simulation)
 
 end
