@@ -103,7 +103,7 @@ function run_sim(Ri, s, label)
                             sim.Δt,
                             AdvectiveCFL(sim.Δt)(sim.model))
 
-    simulation.callbacks[:progress] = Callback(progress, IterationInterval(10))
+    simulation.callbacks[:progress] = Callback(progress, IterationInterval(100))
 
     # ### Output
 
