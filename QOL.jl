@@ -1,9 +1,5 @@
 # For generating strings to label simulations based on their parameters
 
-function get_label(log_Ri, log_s)
-    return "_Ri_" * string(log_Ri) * "_s_" * string(log_s)
-end
-
 function get_scales(Ri, s)
 
     # Ri = N²f²/M⁴

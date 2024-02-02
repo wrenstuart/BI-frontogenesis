@@ -4,7 +4,6 @@ using Oceananigans
 using Printf
 
 include("../QOL.jl")
-include("simulation_parameters.jl")
 
 function physical_quantities_from_inputs(Ri, s)
 
@@ -12,8 +11,6 @@ function physical_quantities_from_inputs(Ri, s)
     p = get_scales(Ri, s)
 
     # Set the viscosities
-    ν_h = 1e-4
-    ν_v = 1e-6
 
     # Set the domain size
     Lx = 4 * 2*pi * p.L * 0.4^0.5   # Zonal extent, set to 4 wavelengths of the most unstable mode
@@ -21,7 +18,7 @@ function physical_quantities_from_inputs(Ri, s)
     Lz = p.H                        # Vertical extent
 
     # Set relative amplitude for random velocity perturbation
-    kick = 0.02 * p.H * p.f
+    kick = 0.01 * p.U
 
     # Define the background fields
     B₀(x, y, z, t) = p.M² * y + p.N² * z    # Buoyancy
@@ -33,15 +30,18 @@ function physical_quantities_from_inputs(Ri, s)
     wᵢ(x, y, z) = kick * randn()
     bᵢ(x, y, z) = 0
 
-    return p, (x = Lx, y = Ly, z = Lz), (u = uᵢ, v = vᵢ, w = wᵢ, b = bᵢ), (U = U₀, B = B₀), (h = ν_h, v = ν_v)
+    return p, (x = Lx, y = Ly, z = Lz), (u = uᵢ, v = vᵢ, w = wᵢ, b = bᵢ), (U = U₀, B = B₀)
 
 end
 
-function run_sim(Ri, s, label)
+function run_sim(params)
 
-    resolution = sim_params().res
+    resolution = params.res
+    label = params.label
 
-    p, domain, ic, background, ν = physical_quantities_from_inputs(Ri, s)
+    @info label
+
+    p, domain, ic, background = physical_quantities_from_inputs(params.Ri, params.s)
     # Here, p holds the physical parameters
 
     # Set the time-stepping parameters
@@ -49,7 +49,7 @@ function run_sim(Ri, s, label)
     duration = p.T * 40
 
     # Build the grid
-    if sim_params().GPU
+    if params.GPU
         grid = RectilinearGrid(GPU(), size = resolution, x = (0, domain.x), y = (0, domain.y), z = (-domain.z, 0), topology = (Periodic, Periodic, Bounded))
     else
         grid = RectilinearGrid(size = resolution, x = (0, domain.x), y = (0, domain.y), z = (-domain.z, 0), topology = (Periodic, Periodic, Bounded))
@@ -58,12 +58,12 @@ function run_sim(Ri, s, label)
     # Set the diffusivities and background fields
     B_field = BackgroundField(background.B)
     U_field = BackgroundField(background.U)
-    diff_h = HorizontalScalarDiffusivity(ν = ν.h, κ = ν.h)
-    diff_v = HorizontalScalarDiffusivity(ν = ν.v, κ = ν.v)
+    diff_h = HorizontalScalarDiffusivity(ν = params.ν_h, κ = params.ν_h)
+    diff_v = HorizontalScalarDiffusivity(ν = params.ν_v, κ = params.ν_v)
 
     # Build the model
     model = NonhydrostaticModel(; grid,
-              advection = UpwindBiasedFifthOrder(),  # Specify the advection scheme.  Another good choice is WENO() which is more accurate but slower
+              advection = params.advection_scheme(),  # Specify the advection scheme.  Another good choice is WENO() which is more accurate but slower
               timestepper = :RungeKutta3, # Set the timestepping scheme, here 3rd order Runge-Kutta
               tracers = :b,  # Set the name(s) of any tracers, here b is buoyancy and c is a passive tracer (e.g. dye)
               buoyancy = Buoyancy(model = BuoyancyTracer()), # this tells the model that b will act as the buoyancy (and influence momentum)
@@ -120,7 +120,7 @@ function run_sim(Ri, s, label)
     # CONSIDER changing b_pert in the above to be b - hor_mean(b)
 
     # Output the slice y = 0
-    filename = "raw_data/BI_xz" * label
+    filename = "raw_data/" * label * "_BI_xz"
     simulation.output_writers[:xz_slices] =
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ),
                                 filename = filename * ".jld2",
@@ -129,7 +129,7 @@ function run_sim(Ri, s, label)
                                 overwrite_existing = true)
 
     # Output the slice z = 0
-    filename = "raw_data/BI_xy" * label
+    filename = "raw_data/" * label * "_BI_xy"
     simulation.output_writers[:xy_slices] =
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ),
                                 filename = filename * ".jld2",
@@ -138,7 +138,7 @@ function run_sim(Ri, s, label)
                                 overwrite_existing = true)
 
     # Output the slice x = 0
-    filename = "raw_data/BI_yz" * label
+    filename = "raw_data/" * label * "_BI_yz"
     simulation.output_writers[:yz_slices] =
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ),
                                 filename = filename * ".jld2",
@@ -147,7 +147,7 @@ function run_sim(Ri, s, label)
                                 overwrite_existing = true)
 
     # Output a horizontal slice in the middle
-    filename = "raw_data/BI_xy_mid" * label
+    filename = "raw_data/" * label * "_BI_xy_mid"
     simulation.output_writers[:ℬ_flux] =
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ),
                                 filename = filename * ".jld2",
