@@ -111,18 +111,33 @@ function run_sim(params)
     v = Field(model.velocities.v)
     w = Field(model.velocities.w)
     b = Field(model.tracers.b + model.background_fields.tracers.b)          # Extract the buoyancy and add the background field
-    b_pert = Field(model.tracers.b)
 
-
-    ζ = Field(∂x(v) - ∂y(u))    # The vertical vorticity
+    # Now calculate the derivatives of 𝐮
+    # Only 8 are needed, since ∇⋅𝐮 = 0
+    ζ₁ = Field(∂y(w) - ∂z(v))
+    ζ₂ = Field(∂z(u) - ∂x(w))
+    ζ₃ = Field(∂x(v) - ∂y(u))
     δ = Field(∂x(u) + ∂y(v))    # The horizontal divergence
-    ℬ = Field(w * b_pert)       # The buoyancy flux
-    # CONSIDER changing b_pert in the above to be b - hor_mean(b)
+    u_x = Field(∂x(u))
+    v_x = Field(∂x(v))
+    u_z = Field(∂z(u))
+    v_z = Field(∂z(v))
+
+    # Also calculate derivatives of b
+    b_x = Field(∂x(b))
+    b_y = Field(∂y(b))
+    b_z = Field(∂z(b))
+
+    # Compute y-averages 𝐮̅(x,z) and b̅(x,z)
+    u̅ = Field(Average(u, dims = 2))
+    v̅ = Field(Average(v, dims = 2))
+    w̅ = Field(Average(w, dims = 2))
+    b̅ = Field(Average(b, dims = 2))
 
     # Output the slice y = 0
     filename = "raw_data/" * label * "_BI_xz"
     simulation.output_writers[:xz_slices] =
-        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ),
+        JLD2OutputWriter(model, (; u, v, w, b, ζ₁, ζ₂, ζ₃, δ, u_x, v_x, u_z, v_z, b_x, b_y, b_z),
                                 filename = filename * ".jld2",
                                 indices = (:, 1, :),
                                 schedule = TimeInterval(p.T/20),
@@ -131,7 +146,7 @@ function run_sim(params)
     # Output the slice z = 0
     filename = "raw_data/" * label * "_BI_xy"
     simulation.output_writers[:xy_slices] =
-        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ),
+        JLD2OutputWriter(model, (; u, v, w, b, ζ₁, ζ₂, ζ₃, δ, u_x, v_x, u_z, v_z, b_x, b_y, b_z),
                                 filename = filename * ".jld2",
                                 indices = (:, :, resolution[3]),
                                 schedule = TimeInterval(p.T/20),
@@ -140,19 +155,33 @@ function run_sim(params)
     # Output the slice x = 0
     filename = "raw_data/" * label * "_BI_yz"
     simulation.output_writers[:yz_slices] =
-        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ),
+        JLD2OutputWriter(model, (; u, v, w, b, ζ₁, ζ₂, ζ₃, δ, u_x, v_x, u_z, v_z, b_x, b_y, b_z),
                                 filename = filename * ".jld2",
                                 indices = (1, :, :),
                                 schedule = TimeInterval(p.T/20),
                                 overwrite_existing = true)
 
-    # Output a horizontal slice in the middle
+    # Output a horizontal slice in the middle (verticall speaking)
     filename = "raw_data/" * label * "_BI_xy_mid"
-    simulation.output_writers[:ℬ_flux] =
-        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ),
+    simulation.output_writers[:xy_slices_mid] =
+        JLD2OutputWriter(model, (; u, v, w, b, ζ₁, ζ₂, ζ₃, δ, u_x, v_x, u_z, v_z, b_x, b_y, b_z),
                                 filename = filename * ".jld2",
                                 indices = (:, :, Int64(round((resolution[3]+1) / 2))),
                                 schedule = TimeInterval(p.T/20),
+                                overwrite_existing = true)
+
+    filename = "raw_data/" * label * "_BI_y-avg"
+    simulation.output_writers[:xy_slices_mid] =
+        JLD2OutputWriter(model, (; u̅, v̅, w̅, b̅),
+                                filename = filename * ".jld2",
+                                schedule = TimeInterval(p.T/20),
+                                overwrite_existing = true)
+
+    filename = "raw_data/" * label * "_full"
+    simulation.output_writers[:full] =
+        JLD2OutputWriter(model, (; u, v, w, b),
+                                filename = filename * ".jld2",
+                                schedule = TimeInterval(duration / 10),
                                 overwrite_existing = true)
 
     nothing # hide
