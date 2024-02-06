@@ -10,7 +10,8 @@ function sim_params()
     ν_v = 1e-3
     par_with_GPU = false
     res = (128, 128, 16)
-    return (GPU = par_with_GPU, res = res, Ri = Ri, s = s, ν_h = ν_h, ν_v = ν_v, label = label)
+    advection_scheme = CenteredSecondOrder
+    return (GPU = par_with_GPU, res = res, Ri = Ri, s = s, ν_h = ν_h, ν_v = ν_v, label = label, advection_scheme = advection_scheme)
 end
 
 This is not tracked by git.
