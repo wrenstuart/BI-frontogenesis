@@ -2,3 +2,4 @@
 *.jld2
 simulation/use_GPU.jl
 simulation/*_input.jl
+*.mp4
