@@ -8,12 +8,9 @@ function BI_plot(label)
     # Set the two dimensional parameters
     H = 50    # Depth of mixed layer
     f = 1e-4  # Coriolis parameter
-    N² = 1e4 * f^2
+    N² = 0
 
-    prefix = "raw_data/" * label
-
-    # Set the filename (without the extension)
-    filename_xy_top = prefix * "_BI_xy"
+    filename_xy_top = "raw_data/" * label * "_BI_xy"
 
     # Read in the first iteration.  We do this to load the grid
     b_ic = FieldTimeSeries(filename_xy_top * ".jld2", "b", iterations = 0)
@@ -38,7 +35,7 @@ function BI_plot(label)
     # Calculate the maximum relative vorticity and buoyancy flux to set the scale for the colourmap
     ζ₃_max = 0
     b_max = maximum(b_ic)
-    b_min = -N² * H
+    b_min = 0
 
     for i = 11 : length(iterations)
         iter = iterations[i]
@@ -62,8 +59,8 @@ function BI_plot(label)
         # Save some variables to plot at the end
         t_save[i] = t # save the time
 
-            b_xy_plot = Plots.heatmap(xb/1kilometer, yb/1kilometer, b_xy'; color = :balance, xlabel = "\$x/\\mathrm{km}\$", ylabel = "\$y/\\mathrm{km}\$", clims=(b_min, b_max));  
-            ζ₃_xy_plot = Plots.heatmap(xζ₃/1kilometer, yζ₃/1kilometer, ζ₃_xy'/f; color = :balance, xlabel = "\$x/\\mathrm{km}\$", ylabel = "\$y/\\mathrm{km}\$", clims=(-ζ₃_max/f, ζ₃_max/f));  
+            b_xy_plot = Plots.heatmap(xb/1kilometer, yb/1kilometer, b_xy'/b_max; color = :viridis, xlabel = "\$x/\\mathrm{km}\$", ylabel = "\$y/\\mathrm{km}\$", clims=(-0.5, 1.5), ticklabel = []);
+            ζ₃_xy_plot = Plots.heatmap(xζ₃/1kilometer, yζ₃/1kilometer, ζ₃_xy'/f; color = :balance, xlabel = "\$x/\\mathrm{km}\$", ylabel = "\$y/\\mathrm{km}\$", clims=(-ζ₃_max/f, ζ₃_max/f));
 
         b_title = @sprintf("\$b\$");
         ζ₃_title = @sprintf("\$ζ/f\$");
@@ -71,7 +68,7 @@ function BI_plot(label)
         # Combine the sub-plots into a single figure
         Plots.plot(b_xy_plot, ζ₃_xy_plot,
         layout = (1, 2),
-        title = [b_title ζ₃_title], aspect_ratio = :equal)
+        title = [b_title ζ₃_title], size = (1280, 720))#aspect_ratio = :equal)
 
         iter == iterations[end] && close(file_xy)
     end
