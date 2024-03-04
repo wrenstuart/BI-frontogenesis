@@ -13,8 +13,8 @@ function physical_quantities_from_inputs(Ri, s)
     # Set the viscosities
 
     # Set the domain size
-    Lx = 4 * 2*pi * p.L * 0.4^0.5   # Zonal extent, set to 4 wavelengths of the most unstable mode
-    Ly = (1+5^0.5)/2 * Lx           # Meridional extent, chosen to be an irrational multiple of Lx to avoid resonance
+    Lx = 2 * 2*pi * p.L * 0.4^0.5   # Zonal extent, set to 2 wavelengths of the most unstable mode
+    Ly = Lx                         # Meridional extent
     Lz = p.H                        # Vertical extent
 
     # Set relative amplitude for random velocity perturbation
