@@ -20,3 +20,23 @@ function animate()
 end
 
 animate()
+
+function animate2()
+    
+    t = Observable(0.0)                 # This will be updated to change the whole plot
+
+    x = [x for x in 0:0.1:10]           # x domain
+    t_end = 10                          # Final time
+    n_frames = 100                      # Number of frames to animate
+    time = range(0, t_end, n_frames)    # Collection of times to sample
+
+    y = @lift sin.(x .+ $t)             # Define observable y that updates when t does
+    # f(t) = sin.(x .- t)               # Another way
+    # y = lift(f, t)                    # of defining y
+    
+    fig = lines(x, y, color = :black)
+    record(τ -> t[] = τ, fig, "test_ani.mp4", time, framerate = 25)
+
+end
+
+animate2()
