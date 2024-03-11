@@ -1,8 +1,6 @@
 using Oceananigans, JLD2, Plots, Printf
 using Oceananigans.Units
 
-
-
 function BI_plot(label)
 
     # Set the two dimensional parameters
@@ -79,3 +77,5 @@ function BI_plot(label)
     mp4(anim, "pretty_things/" * label * ".mp4", fps = 20) # hide
 
 end
+
+BI_plot("test")

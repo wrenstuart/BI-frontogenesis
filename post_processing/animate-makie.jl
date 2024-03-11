@@ -69,7 +69,11 @@ function new_BI_plot(label)
     display(fig)
     
     @info "Making an animation from saved data..."
-    record(i -> iter[] = i, fig, "pretty_things/" * label * ".mp4", iterations, framerate = 20)
+    record(i -> iter[] = i,
+           fig,
+           "pretty_things/" * label * ".mp4",
+           iterations[Int64(round(length(iterations)*0.5)) : length(iterations)],
+           framerate = 20)
 
 end
 
