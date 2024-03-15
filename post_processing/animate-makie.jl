@@ -49,6 +49,8 @@ function new_BI_plot(label)
         ζ₃_max = maximum([ζ₃_max, maximum(ζ₃_xy[])])
     end
 
+    ζ₃_max = minimum([ζ₃_max, 20*f])
+
     @info "Drawing first frame"
 
     # Create the plot, starting at t = 0
@@ -77,4 +79,4 @@ function new_BI_plot(label)
 
 end
 
-new_BI_plot("test")
+#new_BI_plot("test")
