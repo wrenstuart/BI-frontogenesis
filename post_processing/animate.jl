@@ -116,7 +116,7 @@ function ani_xz(label)
 
     # Calculate the maximum relative vorticity and buoyancy flux to set the scale for the colourmap
     ζ₃_max = 0
-    b_max = maximum([maximum(b_ic), maximum(b_ic)])
+    b_max = maximum([maximum(b_ic), maximum(-b_ic)])
 
     for i = 11 : length(iterations)
         iter[] = iterations[i]
