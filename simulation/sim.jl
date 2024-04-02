@@ -21,14 +21,23 @@ function physical_quantities_from_inputs(Ri, s)
     kick = 0.05 * p.U
 
     # Define the background fields
-    B₀(x, y, z, t) = p.M² * y + p.N² * z    # Buoyancy
+    #=B₀(x, y, z, t) = p.M² * y + p.N² * z    # Buoyancy
     U₀(x, y, z, t) = -p.M²/p.f * (z + Lz)   # Zonal velocity
 
     # Set the initial perturbation conditions, a random velocity perturbation
     uᵢ(x, y, z) = kick * randn()
     vᵢ(x, y, z) = kick * randn() 
     wᵢ(x, y, z) = kick * randn()
-    bᵢ(x, y, z) = 0
+    bᵢ(x, y, z) = 0=#
+
+    B₀(x, y, z, t) = p.M² * y   # Buoyancy
+    U₀(x, y, z, t) = 0          # Zonal velocity
+
+    # Set the initial perturbation conditions, a random velocity perturbation
+    uᵢ(x, y, z) = kick * randn()
+    vᵢ(x, y, z) = kick * randn() 
+    wᵢ(x, y, z) = kick * randn()
+    bᵢ(x, y, z) = p.N² * z
 
     return p, (x = Lx, y = Ly, z = Lz), (u = uᵢ, v = vᵢ, w = wᵢ, b = bᵢ), (U = U₀, B = B₀)
 
@@ -111,7 +120,7 @@ function run_sim(params)
     v = Field(model.velocities.v)
     w = Field(model.velocities.w)
     b = Field(model.tracers.b + model.background_fields.tracers.b)          # Extract the buoyancy and add the background field
-    b_pert = Field(model.tracers.b)
+    b_pert = Field(model.tracers.b)# - BackgroundField((x, y, z, t) -> p.N² * z))
 
     # Now calculate the derivatives of 𝐮
     # Only 8 are needed, since ∇⋅𝐮 = 0
