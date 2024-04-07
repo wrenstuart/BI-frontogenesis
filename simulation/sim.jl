@@ -34,7 +34,7 @@ function physical_quantities_from_inputs(Ri, s)
     U₀(x, y, z, t) = 0          # Zonal velocity
 
     # Set the initial perturbation conditions, a random velocity perturbation
-    uᵢ(x, y, z) = kick * randn()
+    uᵢ(x, y, z) = -p.M²/p.f * (z + Lz) + kick * randn()
     vᵢ(x, y, z) = kick * randn() 
     wᵢ(x, y, z) = kick * randn()
     bᵢ(x, y, z) = p.N² * z
