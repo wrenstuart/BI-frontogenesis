@@ -55,7 +55,7 @@ function run_sim(params)
 
     # Set the time-stepping parameters
     max_Δt = minimum([p.T/10, 0.85 * pi / (p.N²^0.5)])
-    duration = p.T * 40
+    duration = p.T * 50
 
     # Build the grid
     if params.GPU
