@@ -224,14 +224,14 @@ function ani_zeta_hist_cf(label₁, label₂)
 
     t₁_ref = 0
     for iter in iterations₁[Int64(round(length(iterations₁)*0.5)) : length(iterations₁)]
-        if mean(file₁["timeseries/ζ₃/$iter"][:, :, 1] .^ 2) >= ζ₁_scale / 2
+        if mean(file₁["timeseries/ζ₃/$iter"][:, :, 1] .^ 2) >= ζ₁_scale^2 / 2
             t₁_ref = file₁["timeseries/t/$iter"]
             break
         end
     end
     t₂_ref = 0
     for iter in iterations₂[Int64(round(length(iterations₂)*0.5)) : length(iterations₂)]
-        if mean(file₂["timeseries/ζ₃/$iter"][:, :, 1] .^ 2) >= ζ₁_scale / 2
+        if mean(file₂["timeseries/ζ₃/$iter"][:, :, 1] .^ 2) >= ζ₁_scale^2 / 2
             t₂_ref = file₂["timeseries/t/$iter"]
             break
         end
