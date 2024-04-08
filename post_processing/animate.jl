@@ -153,4 +153,107 @@ function ani_xz(label)
 
 end
 
+function ani_zeta_hist(label)
+
+    # Set the two dimensional parameters
+    H = 50    # Depth of mixed layer
+    f = 1e-4  # Coriolis parameter
+
+    filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
+
+    # Now, open the file with our data
+    file = jldopen(filename_xy_top)
+
+    # Set up observables for plotting that will update as the iteration number is updated
+    iter = Observable(0)
+    ζ₃_xy = lift(iter -> file["timeseries/ζ₃/$iter"][:, :, 1], iter) # Surface vertical vorticity at this iteration
+    ζ_on_fs = lift(iter -> vec(ζ₃_xy[])/f, iter)
+    t = lift(iter -> file["timeseries/t/$iter"], iter)   # Time elapsed by this iteration
+
+    # Extract the values that iter can take
+    iterations = parse.(Int, keys(file["timeseries/t"]))
+
+    @info "Drawing first frame"
+
+    # Create the plot, starting at t = 0
+    # This will be updated as the observable iter is updated
+    iter[] = 0
+    fig = Figure(size = (1280, 720))
+    ax = Axis(fig[1, 1][1, 1], xlabel = L"$\zeta/f$", ylabel = L"\text{Frequency density}", limits = ((-5, 10), nothing))
+    h = hist!(ax, ζ_on_fs, bins = -5:0.025:15, normalization = :pdf)
+
+    ##############################################
+    # SEE IF CAN CHANGE COLORS, ADD TIME COUNTER #
+    ##############################################
+
+    display(fig)
+    
+    @info "Making an animation from saved data..."
+    record(i -> iter[] = i,
+           fig,
+           "pretty_things/" * label * ".mp4",
+           iterations[Int64(round(length(iterations)*0.5)) : length(iterations)],
+           framerate = 20)
+
+end
+
+function ani_zeta_hist_cf(label₁, label₂)
+
+    # Set the two dimensional parameters
+    H = 50    # Depth of mixed layer
+    f = 1e-4  # Coriolis parameter
+
+    filename₁_xy_top = "raw_data/" * label₁ * "_BI_xy" * ".jld2"
+    filename₂_xy_top = "raw_data/" * label₂ * "_BI_xy" * ".jld2"
+
+    # Now, open the file with our data
+    file₁ = jldopen(filename₁_xy_top)
+    file₂ = jldopen(filename₂_xy_top)
+
+    @info 1
+
+    # Extract the values that iter can take
+    iterations₁ = parse.(Int, keys(file₁["timeseries/t"]))
+    iterations₂ = parse.(Int, keys(file₂["timeseries/t"]))
+    t₁s = [file₁["timeseries/t/$iter"] for iter in iterations₁]
+    t₂s = [file₂["timeseries/t/$iter"] for iter in iterations₂]
+
+    # Set up observables for plotting that will update as the iteration number is updated
+    iter = Observable(0)
+    t = lift(iter -> file₁["timeseries/t/$iter"], iter)   # Time elapsed by this iteration
+    ζ₁ = lift(iter -> file₁["timeseries/ζ₃/$iter"][:, :, 1], iter) # Surface vertical vorticity at this iteration
+    ζ₁_on_fs = lift(iter -> vec(ζ₁[])/f, iter)
+    iter₂ = lift(iter -> iterations₂[findmin(abs.(t₂s .- t[]))[2]], iter)
+    ζ₂ = lift(iter -> file₂["timeseries/ζ₃/$iter"][:, :, 1], iter₂) # Surface vertical vorticity at this iteration
+    ζ₂_on_fs = lift(iter -> vec(ζ₂[])/f, iter₂)
+
+    @info 2
+
+    @info iterations₁
+
+    @info "Drawing first frame"
+
+    # Create the plot, starting at t = 0
+    # This will be updated as the observable iter is updated
+    iter[] = 0
+    fig = Figure(size = (1280, 720))
+    ax = Axis(fig[1, 1][1, 1], xlabel = L"$\zeta/f$", ylabel = L"\text{Frequency density}", limits = ((-5, 10), nothing))
+    h = hist!(ax, ζ₁_on_fs, bins = -5:0.025:15, normalization = :pdf)
+    h = hist!(ax, ζ₂_on_fs, bins = -5:0.025:15, normalization = :pdf)
+
+    ##############################################
+    # SEE IF CAN CHANGE COLORS, ADD TIME COUNTER #
+    ##############################################
+
+    display(fig)
+
+    @info "Making an animation from saved data..."
+    record(i -> iter[] = i,
+           fig,
+           "pretty_things/" * label₁ * label₂ * ".mp4",
+           iterations₁[Int64(round(length(iterations₁)*0.5)) : length(iterations₁)],
+           framerate = 20)
+
+end
+
 nothing
