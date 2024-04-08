@@ -230,7 +230,11 @@ function ani_zeta_hist_cf(label₁, label₂)
             break
         end
     end
+    @info t₁_ref
+    @info t₂_ref
     Δt = t₂_ref - t₁_ref
+    @info Δt
+    @info Δt/t₁s[end]
 
     # Set up observables for plotting that will update as the iteration number is updated
     iter = Observable(0)
