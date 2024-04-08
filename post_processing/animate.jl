@@ -217,16 +217,20 @@ function ani_zeta_hist_cf(label₁, label₂)
     t₁s = [file₁["timeseries/t/$iter"] for iter in iterations₁]
     t₂s = [file₂["timeseries/t/$iter"] for iter in iterations₂]
     t₁_ref = 0
-    for iter in iterations₁
+    for iter in iterations₁[Int64(round(length(iterations₁)*0.5)) : length(iterations₁)]
+        @info 1
         @info mean(file₁["timeseries/ζ₃/$iter"][:, :, 1] .^ 2)
         if mean(file₁["timeseries/ζ₃/$iter"][:, :, 1] .^ 2) >= f^2
+            @info 2
             t₁_ref = file₁["timeseries/t/$iter"]
             break
         end
     end
     t₂_ref = 0
-    for iter in iterations₂
+    for iter in iterations₂[Int64(round(length(iterations₂)*0.5)) : length(iterations₂)]
+        @info 3
         if mean(file₂["timeseries/ζ₃/$iter"][:, :, 1] .^ 2) >= f^2
+            @info 4
             t₂_ref = file₂["timeseries/t/$iter"]
             break
         end
