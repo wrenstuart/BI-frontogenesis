@@ -4,6 +4,7 @@ using JLD2
 using Printf
 using Oceananigans.Units
 using Makie.Colors
+using Statistics
 
 function ani_xy(label)
 
@@ -231,7 +232,7 @@ function ani_zeta_hist_cf(label₁, label₂)
             break
         end
     end
-    Δt = t₂ - t₁
+    Δt = t₂_ref - t₁_ref
 
     # Set up observables for plotting that will update as the iteration number is updated
     iter = Observable(0)
