@@ -179,7 +179,7 @@ function ani_zeta_hist(label)
     # This will be updated as the observable iter is updated
     iter[] = 0
     fig = Figure(size = (1280, 720))
-    ax = Axis(fig[1, 1][1, 1], xlabel = L"$\zeta/f$", ylabel = L"\text{Frequency density}", limits = ((-5, 10), nothing))
+    ax = Axis(fig[1, 1][1, 1], xlabel = L"$\zeta/f$", ylabel = L"\text{Frequency density}", limits = ((-5, 10), (0, 2)))
     h = hist!(ax, ζ_on_fs, bins = -5:0.025:15, normalization = :pdf)
 
     ##############################################
@@ -237,7 +237,7 @@ function ani_zeta_hist_cf(label₁, label₂)
     # This will be updated as the observable iter is updated
     iter[] = 0
     fig = Figure(size = (1280, 720))
-    ax = Axis(fig[1, 1][1, 1], xlabel = L"$\zeta/f$", ylabel = L"\text{Frequency density}", limits = ((-5, 10), nothing))
+    ax = Axis(fig[1, 1][1, 1], xlabel = L"$\zeta/f$", ylabel = L"\text{Frequency density}", limits = ((-5, 10), (0, 2)))
     h = hist!(ax, ζ₁_on_fs, bins = -5:0.025:15, normalization = :pdf)
     h = hist!(ax, ζ₂_on_fs, bins = -5:0.025:15, normalization = :pdf)
 
