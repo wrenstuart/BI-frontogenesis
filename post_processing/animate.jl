@@ -211,8 +211,6 @@ function ani_zeta_hist_cf(label₁, label₂)
     file₁ = jldopen(filename₁_xy_top)
     file₂ = jldopen(filename₂_xy_top)
 
-    @info 1
-
     # Extract the values that iter can take
     iterations₁ = parse.(Int, keys(file₁["timeseries/t"]))
     iterations₂ = parse.(Int, keys(file₂["timeseries/t"]))
@@ -239,13 +237,9 @@ function ani_zeta_hist_cf(label₁, label₂)
     t = lift(iter -> file₁["timeseries/t/$iter"], iter)   # Time elapsed by this iteration
     ζ₁ = lift(iter -> file₁["timeseries/ζ₃/$iter"][:, :, 1], iter) # Surface vertical vorticity at this iteration
     ζ₁_on_fs = lift(iter -> vec(ζ₁[])/f, iter)
-    iter₂ = lift(iter -> iterations₂[findmin(abs.(t₂s .- (t[] + Δt)))[2]], iter)
+    iter₂ = lift(iter -> iterations₂[findmin(abs.(t₂s .- (t[] - Δt)))[2]], iter)
     ζ₂ = lift(iter -> file₂["timeseries/ζ₃/$iter"][:, :, 1], iter₂) # Surface vertical vorticity at this iteration
     ζ₂_on_fs = lift(iter -> vec(ζ₂[])/f, iter₂)
-
-    @info 2
-
-    @info iterations₁
 
     @info "Drawing first frame"
 
