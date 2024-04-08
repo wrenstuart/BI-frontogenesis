@@ -217,13 +217,28 @@ function ani_zeta_hist_cf(label₁, label₂)
     iterations₂ = parse.(Int, keys(file₂["timeseries/t"]))
     t₁s = [file₁["timeseries/t/$iter"] for iter in iterations₁]
     t₂s = [file₂["timeseries/t/$iter"] for iter in iterations₂]
+    t₁_ref = 0
+    for iter in iterations₁
+        if mean(file₁["timeseries/ζ₃/$iter"][:, :, 1] .^ 2) >= 1
+            t₁_ref = file₁["timeseries/t/$iter"]
+            break
+        end
+    end
+    t₂_ref = 0
+    for iter in iterations₂
+        if mean(file₂["timeseries/ζ₃/$iter"][:, :, 1] .^ 2) >= 1
+            t₂_ref = file₂["timeseries/t/$iter"]
+            break
+        end
+    end
+    Δt = t₂ - t₁
 
     # Set up observables for plotting that will update as the iteration number is updated
     iter = Observable(0)
     t = lift(iter -> file₁["timeseries/t/$iter"], iter)   # Time elapsed by this iteration
     ζ₁ = lift(iter -> file₁["timeseries/ζ₃/$iter"][:, :, 1], iter) # Surface vertical vorticity at this iteration
     ζ₁_on_fs = lift(iter -> vec(ζ₁[])/f, iter)
-    iter₂ = lift(iter -> iterations₂[findmin(abs.(t₂s .- t[]))[2]], iter)
+    iter₂ = lift(iter -> iterations₂[findmin(abs.(t₂s .- (t[] + Δt)))[2]], iter)
     ζ₂ = lift(iter -> file₂["timeseries/ζ₃/$iter"][:, :, 1], iter₂) # Surface vertical vorticity at this iteration
     ζ₂_on_fs = lift(iter -> vec(ζ₂[])/f, iter₂)
 
