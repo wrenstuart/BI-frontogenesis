@@ -219,7 +219,7 @@ function ani_zeta_hist_cf(label₁, label₂)
 
     ζ₁_scale = 0
     for iter in iterations₁[Int64(round(length(iterations₁)*0.5)) : length(iterations₁)]
-        ζ₁_scale = maximum(mean(file₁["timeseries/ζ₃/$iter"][:, :, 1] .^ 2) ^ 0.5, ζ₁_scale)
+        ζ₁_scale = maximum([mean(file₁["timeseries/ζ₃/$iter"][:, :, 1] .^ 2) ^ 0.5, ζ₁_scale])
     end
 
     t₁_ref = 0
