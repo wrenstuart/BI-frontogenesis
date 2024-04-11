@@ -192,7 +192,7 @@ function ani_zeta_hist(label)
     @info "Making an animation from saved data..."
     record(i -> iter[] = i,
            fig,
-           "pretty_things/" * label * ".mp4",
+           "pretty_things/" * label * "_hist.mp4",
            iterations[Int64(round(length(iterations)*0.5)) : length(iterations)],
            framerate = 20)
 
@@ -268,7 +268,7 @@ function ani_zeta_hist_cf(label₁, label₂)
     @info "Making an animation from saved data..."
     record(i -> iter[] = i,
            fig,
-           "pretty_things/" * label₁ * label₂ * ".mp4",
+           "pretty_things/" * label₁ * label₂ * "_histcf.mp4",
            iterations₁[Int64(round(length(iterations₁)*0.5)) : length(iterations₁)],
            framerate = 20)
 
