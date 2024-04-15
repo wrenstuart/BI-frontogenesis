@@ -30,16 +30,20 @@ function physical_quantities_from_inputs(Ri, s)
     wᵢ(x, y, z) = kick * randn()
     bᵢ(x, y, z) = 0=#
 
-    B₀(x, y, z, t) = p.M² * y   # Buoyancy
-    U₀(x, y, z, t) = 0          # Zonal velocity
+    B₀(x, y, z, t) = p.M² * y               # Buoyancy
+    U₀(x, y, z, t) = -p.M²/p.f * (z + Lz)   # Zonal velocity
 
     # Set the initial perturbation conditions, a random velocity perturbation
-    uᵢ(x, y, z) = -p.M²/p.f * (z + Lz) + kick * randn()
+    uᵢ(x, y, z) = kick * randn()
     vᵢ(x, y, z) = kick * randn() 
     wᵢ(x, y, z) = kick * randn()
     bᵢ(x, y, z) = p.N² * z
 
-    return p, (x = Lx, y = Ly, z = Lz), (u = uᵢ, v = vᵢ, w = wᵢ, b = bᵢ), (U = U₀, B = B₀)
+    u_bcs = FieldBoundaryConditions(top = GradientBoundaryCondition(M²/f),
+                                    bottom = GradientBoundaryCondition(M²/f))
+    BCs = (u = u_bcs)
+
+    return p, (x = Lx, y = Ly, z = Lz), (u = uᵢ, v = vᵢ, w = wᵢ, b = bᵢ), (U = U₀, B = B₀), BCs
 
 end
 
@@ -50,7 +54,7 @@ function run_sim(params)
 
     @info label
 
-    p, domain, ic, background = physical_quantities_from_inputs(params.Ri, params.s)
+    p, domain, ic, background, BCs = physical_quantities_from_inputs(params.Ri, params.s)
     # Here, p holds the physical parameters
 
     # Set the time-stepping parameters
@@ -78,7 +82,8 @@ function run_sim(params)
               buoyancy = Buoyancy(model = BuoyancyTracer()), # this tells the model that b will act as the buoyancy (and influence momentum)
               background_fields = (b = B_field, u = U_field),
               coriolis = coriolis = FPlane(f = p.f),
-              closure = (diff_h, diff_v)
+              closure = (diff_h, diff_v),
+              boundary_conditions = BCs
               )
     
     # Set initial conditions
