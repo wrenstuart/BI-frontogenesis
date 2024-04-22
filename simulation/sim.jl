@@ -29,9 +29,9 @@ function physical_quantities_from_inputs(Ri, s)
     wᵢ(x, y, z) = kick * randn()
     bᵢ(x, y, z) = p.N² * z
 
-    u_bcs = FieldBoundaryConditions(top = GradientBoundaryCondition(p.M²/f),
-                                    bottom = GradientBoundaryCondition(p.M²/f))
-    BCs = (u = u_bcs)
+    u_bcs = FieldBoundaryConditions(top = GradientBoundaryCondition(p.M²/p.f),
+                                    bottom = GradientBoundaryCondition(p.M²/p.f))
+    BCs = (u = u_bcs,)
 
     return p, (x = Lx, y = Ly, z = Lz), (u = uᵢ, v = vᵢ, w = wᵢ, b = bᵢ), (U = U₀, B = B₀), BCs
 
@@ -130,7 +130,7 @@ function run_sim(params)
 
     # Also calculate derivatives of b
     b_x = Field(∂x(b))
-    b_y = Field(Field(∂y(b_pert)) .+ p.M²)
+    b_y = Field(Field(∂y(b_pert)) + p.M²)
     b_z = Field(∂z(b))
 
     # Compute y-averages 𝐮̅(x,z) and b̅(x,z)

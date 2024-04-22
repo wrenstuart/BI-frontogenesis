@@ -276,11 +276,12 @@ function ani_zeta_hist_cf(label₁, label₂)
 
 end
 
-function low_pass_filter_2d(z, m, n)
+function low_pass_filter_2d(z, m_cut, n_cut)
+    (M, N) = size(z)
     z_f = fft(z)
     z_f[1+m_cut:M-m_cut, :] .= 0
     z_f[:, 1+n_cut:N-n_cut] .= 0
-    z_smooth = real(ifft(z_f))
+    real(ifft(z_f))
 end
 
 function front_detection(label)
@@ -337,22 +338,37 @@ function front_detection(label)
         print(L)
         print('\n')
     end=#
-    L_scale = 2000
+    
+    #=L_scale = 2000
     m_cut = Int(round((xb[end] - xb[1])/L_scale))
     n_cut = Int(round((yb[end] - yb[1])/L_scale))
-    filter(z) = low_pass_filter_2d(z, m_cut, n_cut)
-    abs_filt_∇b = lift(b_x, b_y) do b_x, b_y
+    create_filter = (m, n) -> (z -> low_pass_filter_2d(z, m, n))
+    filter = create_filter(m_cut, n_cut)=#
+
+    #=L_scale = Observable(2000)
+    m_cut = lift(L -> Int(round((xb[end] - xb[1])/L)), L_scale)
+    n_cut = lift(L -> Int(round((yb[end] - yb[1])/L)), L_scale)
+    filter = lift((m, n) -> (z -> low_pass_filter_2d(z, m, n)), m_cut, n_cut)
+
+    abs_filt_∇b = lift(b_x, b_y, filter) do b_x, b_y, f
         b_y = [(x < 1e-4 ? x : mean(b_y)) for x in b_y]
-        b_x_filt = filter(b_x)
-        b_y_filt = filter(b_y)
+        b_x_filt = f(b_x)
+        b_y_filt = f(b_y)
         (b_x.^2 + b_y.^2) .^ 0.5
     end
-    filt_abs_∇b = lift(∇b -> filter(∇b), clean_abs_∇b, clean_abs_∇b)
+    filt_abs_∇b = lift((∇b, f) -> f(∇b), clean_abs_∇b, filter)=#
+
     front_highlight = lift(clean_abs_∇b) do mag_∇b
         μ = mean(mag_∇b)
         σ = var(mag_∇b) ^ 0.5
-        [(abs(x - μ) > 3.5σ ? 1 : 0) for x in mag_∇b]
+        [(x > μ + 3.5σ ? 1 : 0) for x in mag_∇b]
+        [(x > 1e-5 ? 1 : 0) for x in mag_∇b]
     end
+
+    #front_highlight = lift(clean_abs_∇b, ∇²b) do mag_∇b, ∇²b
+    #    [(abs(x) == 0 ? 1 : 0) for x in ∇²b]
+    #end
+
     fig = Figure()
     #ax = Axis(fig[1, 1][1, 1])
     #h = hist!(ax, vec_abs_∇b, bins = 0:1e-7:1e-5, normalisation = :pdf)
@@ -370,5 +386,74 @@ function front_detection(label)
            framerate = 20)
     
 end
+
+function front_detection2(label)
+
+    filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
+
+    # Read in the first iteration. We do this to load the grid
+    b_ic = FieldTimeSeries(filename_xy_top, "b", iterations = 0)
+
+    # Load in co-ordinate arrays
+    # We do this separately for each variable since Oceananigans uses a staggered grid
+    xb, yb, zb = nodes(b_ic)
+    M = length(xb)
+    N = length(yb)
+
+    # Now, open the file with our data
+    file = jldopen(filename_xy_top)
+    iterations_full = parse.(Int, keys(file["timeseries/t"]))
+    iterations = parse.(Int, keys(file["timeseries/t"]))[Int64(round(length(iterations_full)*0.5)) : length(iterations_full)]
+    frames = 1:length(iterations)
+    front_highlight = OffsetArrays.no_offset_view(zeros(frames, M, N))
+    front_diagnose = OffsetArrays.no_offset_view(zeros(frames, M, N))
+
+    for frame in frames[1:40]
+
+        @info string(frame) * "/" * string(length(frames))
+
+        iter = iterations[frame]
+        b_x = file["timeseries/b_x/$iter"][:, :, 1]
+        b_y_dirty = file["timeseries/b_y/$iter"][:, :, 1]
+        b_y_ = [(x < 1e-4 ? x : 0) for x in b_y_dirty]
+        b_y = [(x == 0 ? mean(b_y_) : x) for x in b_y_]
+        abs∇b = (b_x.^2 + b_y.^2) .^ 0.5
+        front_filt = [(x > 1e-5 ? 1 : 0) for x in abs∇b]
+        front_highlight[frame, :, :] = front_filt
+
+        L_scale = 2000
+        m_cut = Int(round((xb[end] - xb[1])/L_scale))
+        n_cut = Int(round((yb[end] - yb[1])/L_scale))
+        #create_filter = (m, n) -> (z -> low_pass_filter_2d(z, m, n))
+        #filter = create_filter(m_cut, n_cut)
+        filt_abs∇b = low_pass_filter_2d(abs∇b, m_cut, n_cut)
+        b_x_filt = low_pass_filter_2d(b_x, m_cut, n_cut)
+        b_y_filt = low_pass_filter_2d(b_y, m_cut, n_cut)
+        abs_filt∇b = (b_x_filt.^2 + b_y_filt.^2) .^ 0.5
+        𝒻 = abs_filt∇b ./ filt_abs∇b
+        front_diagnose[frame, :, :] = 𝒻 .* front_filt
+
+    end
+
+    frame = Observable(1)
+    this_front_diagnose = lift(frame -> front_diagnose[frame, :, :], frame)
+    fig = Figure()
+    ax_∇b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\nabla b\text{ detection}")
+    hm_b = heatmap!(ax_∇b, xb/1kilometer, yb/1kilometer, this_front_diagnose; colorrange = (0, 1));
+
+    display(fig)
+    
+    @info "Making an animation from saved data..."
+    record(i -> frame[] = i,
+           fig,
+           "pretty_things/" * label * "_fdetect" * ".mp4",
+           frames,
+           framerate = 20)
+    
+end
+
+#####################################################################
+# TRY REWRITING WITH OBSERVABLES ONLY MENTIONED IN THE PLOTTING BIT #
+#####################################################################
 
 nothing
