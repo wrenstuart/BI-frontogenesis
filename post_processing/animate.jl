@@ -284,6 +284,17 @@ function low_pass_filter_2d(z, m_cut, n_cut)
     real(ifft(z_f))
 end
 
+function gaussian_filter_2d(z, m_cut, n_cut)
+    (M, N) = size(z)
+    z_f = fft(z)
+    for i in 1:M, j in 1:N
+        m = minimum([mod(i-1,M), mod(1-i,M)])
+        n = minimum([mod(j-1,N), mod(1-j,N)])
+        z_f[i, j] *= exp(-(m^2/m_cut^2 + n^2/n_cut^2))
+    end
+    real(ifft(z_f))
+end
+
 function front_detection(label)
 
     filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
@@ -408,35 +419,33 @@ function front_detection2(label)
     front_highlight = OffsetArrays.no_offset_view(zeros(frames, M, N))
     front_diagnose = OffsetArrays.no_offset_view(zeros(frames, M, N))
 
-    for frame in frames[1:40]
+    for frame in frames
 
         @info string(frame) * "/" * string(length(frames))
 
         iter = iterations[frame]
         b_x = file["timeseries/b_x/$iter"][:, :, 1]
-        b_y_dirty = file["timeseries/b_y/$iter"][:, :, 1]
-        b_y_ = [(x < 1e-4 ? x : 0) for x in b_y_dirty]
-        b_y = [(x == 0 ? mean(b_y_) : x) for x in b_y_]
-        abs∇b = (b_x.^2 + b_y.^2) .^ 0.5
-        front_filt = [(x > 1e-5 ? 1 : 0) for x in abs∇b]
+        b_y = file["timeseries/b_y/$iter"][:, :, 1]
+        abs∇b = [(x < 1e-4 ? x : 0) for x in (b_x.^2 + b_y.^2) .^ 0.5]
+        front_filt = [(x > 5e-6 ? 1 : 0) for x in abs∇b]
         front_highlight[frame, :, :] = front_filt
 
-        L_scale = 2000
+        L_scale = 4000
         m_cut = Int(round((xb[end] - xb[1])/L_scale))
         n_cut = Int(round((yb[end] - yb[1])/L_scale))
-        #create_filter = (m, n) -> (z -> low_pass_filter_2d(z, m, n))
-        #filter = create_filter(m_cut, n_cut)
-        filt_abs∇b = low_pass_filter_2d(abs∇b, m_cut, n_cut)
-        b_x_filt = low_pass_filter_2d(b_x, m_cut, n_cut)
-        b_y_filt = low_pass_filter_2d(b_y, m_cut, n_cut)
+        filt_abs∇b = gaussian_filter_2d(abs∇b, m_cut, n_cut)
+        b_x_filt = gaussian_filter_2d(b_x, m_cut, n_cut)
+        b_y_filt = gaussian_filter_2d(b_y, m_cut, n_cut)
         abs_filt∇b = (b_x_filt.^2 + b_y_filt.^2) .^ 0.5
         𝒻 = abs_filt∇b ./ filt_abs∇b
         front_diagnose[frame, :, :] = 𝒻 .* front_filt
+        @info maximum(𝒻 .* front_filt)
 
     end
 
     frame = Observable(1)
     this_front_diagnose = lift(frame -> front_diagnose[frame, :, :], frame)
+    this_front_highlight = lift(frame -> front_highlight[frame, :, :], frame)
     fig = Figure()
     ax_∇b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\nabla b\text{ detection}")
     hm_b = heatmap!(ax_∇b, xb/1kilometer, yb/1kilometer, this_front_diagnose; colorrange = (0, 1));

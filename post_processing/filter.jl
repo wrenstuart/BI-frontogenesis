@@ -9,7 +9,7 @@ M = length(x)
 N = length(y)
 z = [f(x, y) for x in x, y in y]
 
-L = 1   # Filter lengthscale
+L = 5   # Filter lengthscale
 
 # Outline of how wavenumbers work is below
 #=
@@ -24,9 +24,22 @@ k_cut = 2π/L
 m_cut = Int(round((x[end] - x[1])/L))
 n_cut = Int(round((y[end] - y[1])/L))
 
-z_f = fft(z)
+#=z_f = fft(z)
 z_f[1+m_cut:M-m_cut, :] .= 0
 z_f[:, 1+n_cut:N-n_cut] .= 0
-z_smooth = real(ifft(z_f))
+z_smooth = real(ifft(z_f))=#
 
-heatmap(x, y, z_smooth)
+function gaussian_filter_2d(z, m_cut, n_cut)
+    (M, N) = size(z)
+    z_f = fft(z)
+    for i in 1:M, j in 1:N
+        m = minimum([mod(i-1,M), mod(1-i,M)])
+        n = minimum([mod(j-1,N), mod(1-j,N)])
+        @info exp(-(m^2/m_cut^2 + n^2/n_cut^2))
+        z_f[i, j] *= exp(-(m^2/m_cut^2 + n^2/n_cut^2))
+    end
+    real(ifft(z_f))
+end
+
+heatmap(x, y, gaussian_filter_2d(z, m_cut, n_cut))
+#heatmap(x, y, z)
