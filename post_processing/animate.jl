@@ -35,6 +35,13 @@ function ani_xy(label)
     b_xy = lift(iter -> file["timeseries/b/$iter"][:, :, 1], iter)   # Surface buoyancy at this iteration
     t = lift(iter -> file["timeseries/t/$iter"], iter)   # Time elapsed by this iteration
 
+    δ = lift(iter -> file["timeseries/δ/$iter"][:, :, 1], iter)
+    u_x = lift(iter -> file["timeseries/u_x/$iter"][:, :, 1], iter)
+    v_x = lift(iter -> file["timeseries/v_x/$iter"][:, :, 1], iter)
+    u_y = lift((v_x, ζ) -> v_x - ζ, v_x, ζ₃_xy)
+    v_y = lift((u_x, δ) -> δ - u_x, u_x, δ)
+    e = lift((u_x, u_y, v_x, v_y) -> u_x .* v_y - (u_y + v_x).^2 / 4, u_x, u_y, v_x, v_y)
+
     # Extract the values that iter can take
     iterations = parse.(Int, keys(file["timeseries/t"]))
 
@@ -63,7 +70,8 @@ function ani_xy(label)
     ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b")
     ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f")
     hm_b = heatmap!(ax_b, xb/1kilometer, yb/1kilometer, b_xy; colorrange = (-0.5*b_max, 1.5*b_max));
-    hm_ζ₃ = heatmap!(ax_ζ, xζ₃/1kilometer, yζ₃/1kilometer, ζ_on_f; colormap = :coolwarm, colorrange = (-ζ₃_max/f, ζ₃_max/f));
+    #hm_ζ₃ = heatmap!(ax_ζ, xζ₃/1kilometer, yζ₃/1kilometer, ζ_on_f; colormap = :coolwarm, colorrange = (-ζ₃_max/f, ζ₃_max/f));
+    hm_ζ₃ = heatmap!(ax_ζ, xζ₃/1kilometer, yζ₃/1kilometer, e; colormap = :coolwarm, colorrange = (-5f^2, 5f^2));
     Colorbar(fig[1, 1][1, 2], hm_b)
     Colorbar(fig[1, 2][1, 2], hm_ζ₃)
 
@@ -295,110 +303,12 @@ function gaussian_filter_2d(z, m_cut, n_cut)
     real(ifft(z_f))
 end
 
-function front_detection(label)
-
-    filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
-
-    # Read in the first iteration. We do this to load the grid
-    b_ic = FieldTimeSeries(filename_xy_top, "b", iterations = 0)
-
-    # Load in co-ordinate arrays
-    # We do this separately for each variable since Oceananigans uses a staggered grid
-    xb, yb, zb = nodes(b_ic)
-
-    # Now, open the file with our data
-    file = jldopen(filename_xy_top)
-
-    # Set up observables for plotting that will update as the iteration number is updated
-    iter = Observable(0)
-    b = lift(iter -> file["timeseries/b/$iter"][:, :, 1], iter)   # Surface buoyancy at this iteration
-    b_x = lift(iter -> file["timeseries/b_x/$iter"][:, :, 1], iter)   # Surface buoyancy at this iteration
-    b_y = lift(iter -> file["timeseries/b_y/$iter"][:, :, 1], iter)   # Surface buoyancy at this iteration
-    𝒻 = lift(iter -> file["timeseries/b/$iter"][:, :, 1], iter)   # Surface buoyancy at this iteration
-    t = lift(iter -> file["timeseries/t/$iter"], iter)   # Time elapsed by this iteration
-    # Extract the values that iter can take
-    iterations = parse.(Int, keys(file["timeseries/t"]))
-    b_max = maximum(b_ic)
-
-    @info "Drawing first frame"
-
-    abs_∇b = lift((b_x, b_y) -> (b_x.^2 + b_y.^2).^0.5, b_x, b_y)
-    vec_abs_∇b = lift(x -> vec(x), abs_∇b)
-    alt_abs_∇b = lift((b_x, b_y) -> (b_x.^2 + (b_y.-mean(b_y)).^2).^0.5, b_x, b_y)
-    clean_abs_∇b = lift(abs_∇b -> [(x < 1e-4 ? x : mean(abs_∇b)) for x in abs_∇b], abs_∇b)
-    vec_clean_abs_∇b = lift(x -> vec(x), clean_abs_∇b)
-    #############################################################################################
-    # THE CLEANING NEEDS TO BE DONE DUE TO INSTABILITIES; HOPEFULLY NOT PRESENT IN FINAL THING! #
-    #############################################################################################
-    #=∇b_scale = lift(clean_abs_∇b -> begin
-                                  μ = mean(clean_abs_∇b)
-                                  σ = var(clean_abs_∇b) .^ 0.5
-                                  #@info(sum([(x > μ+3σ ? 1 : 0) for x in clean_abs_∇b])/length(clean_abs_∇b))
-                                  σ
-                              end,
-                              clean_abs_∇b)=#
-    ∇b_scale = lift(x -> var(x)^0.5, vec_clean_abs_∇b)
-    ΔB = b[][1,end] - b[][1,1]
-    vec_Δb₁ = lift(b -> vec([b[i,j] - j/size(b)[2] * ΔB for i in 1:size(b)[1], j in 1:size(b)[2]]), b)
-    vec_Δb₂ = lift(b -> vec([b[i,j] .- mean(b[:,j]) for i in 1:size(b)[1], j in 1:size(b)[2]]), b)
-    ∇²b = lift(iter -> OffsetArrays.no_offset_view(Field(∂x(FieldTimeSeries(filename_xy_top, "b_x", iterations = 0)) + ∂y(FieldTimeSeries(filename_xy_top, "b_y", iterations = 0)))[:,:,end]), iter)
-    Δb_scale = lift(x -> var(x)^0.5, vec_Δb₂)
-    
-    #=L_scale = lift((Δb, ∇b) -> Δb/∇b, Δb_scale, ∇b_scale)
-    on(L_scale) do L
-        print(L)
-        print('\n')
-    end=#
-    
-    #=L_scale = 2000
-    m_cut = Int(round((xb[end] - xb[1])/L_scale))
-    n_cut = Int(round((yb[end] - yb[1])/L_scale))
-    create_filter = (m, n) -> (z -> low_pass_filter_2d(z, m, n))
-    filter = create_filter(m_cut, n_cut)=#
-
-    #=L_scale = Observable(2000)
-    m_cut = lift(L -> Int(round((xb[end] - xb[1])/L)), L_scale)
-    n_cut = lift(L -> Int(round((yb[end] - yb[1])/L)), L_scale)
-    filter = lift((m, n) -> (z -> low_pass_filter_2d(z, m, n)), m_cut, n_cut)
-
-    abs_filt_∇b = lift(b_x, b_y, filter) do b_x, b_y, f
-        b_y = [(x < 1e-4 ? x : mean(b_y)) for x in b_y]
-        b_x_filt = f(b_x)
-        b_y_filt = f(b_y)
-        (b_x.^2 + b_y.^2) .^ 0.5
-    end
-    filt_abs_∇b = lift((∇b, f) -> f(∇b), clean_abs_∇b, filter)=#
-
-    front_highlight = lift(clean_abs_∇b) do mag_∇b
-        μ = mean(mag_∇b)
-        σ = var(mag_∇b) ^ 0.5
-        [(x > μ + 3.5σ ? 1 : 0) for x in mag_∇b]
-        [(x > 1e-5 ? 1 : 0) for x in mag_∇b]
-    end
-
-    #front_highlight = lift(clean_abs_∇b, ∇²b) do mag_∇b, ∇²b
-    #    [(abs(x) == 0 ? 1 : 0) for x in ∇²b]
-    #end
-
-    fig = Figure()
-    #ax = Axis(fig[1, 1][1, 1])
-    #h = hist!(ax, vec_abs_∇b, bins = 0:1e-7:1e-5, normalisation = :pdf)
-    #h = hist!(ax, vec_Δb₂, bins = -0.05:0.001:0.05, normalisation = :pdf)
-    ax_∇b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\nabla b\text{ detection}")
-    hm_b = heatmap!(ax_∇b, xb/1kilometer, yb/1kilometer, front_highlight; colorrange = (0, 1));
-
-    display(fig)
-    
-    @info "Making an animation from saved data..."
-    record(i -> iter[] = i,
-           fig,
-           "pretty_things/" * label * "_fdetect" * ".mp4",
-           iterations[Int64(round(length(iterations)*0.5)) : length(iterations)],
-           framerate = 20)
-    
+function per(i,N)
+    # For periodic arrays
+    mod(i-1, N) + 1
 end
 
-function front_detection2(label)
+function front_detection(label, ∇b_scale = 5e-6, L_scale = 8000)
 
     filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
 
@@ -410,6 +320,10 @@ function front_detection2(label)
     xb, yb, zb = nodes(b_ic)
     M = length(xb)
     N = length(yb)
+    Δx = xb[2] - xb[1]
+    Δy = yb[2] - yb[1]
+    m_cut = Int(round((xb[2] - xb[1]) * M / L_scale))
+    n_cut = Int(round((yb[2] - yb[1]) * N / L_scale))
 
     # Now, open the file with our data
     file = jldopen(filename_xy_top)
@@ -427,19 +341,18 @@ function front_detection2(label)
         b_x = file["timeseries/b_x/$iter"][:, :, 1]
         b_y = file["timeseries/b_y/$iter"][:, :, 1]
         abs∇b = [(x < 1e-4 ? x : 0) for x in (b_x.^2 + b_y.^2) .^ 0.5]
-        front_filt = [(x > 5e-6 ? 1 : 0) for x in abs∇b]
-        front_highlight[frame, :, :] = front_filt
+        ∇²b = [(b_x[per(i+1,M),j] - b_x[per(i-1,M),j])/2Δx + (b_y[i,per(j+1,N)] - b_y[i,per(j-1,N)])/2Δy for i in 1:M, j in 1:N]
+        ∇b_filter = [(x > ∇b_scale ? 0 : 0) for x in abs∇b]
+        ∇²b_filter = [(x > 10 * ∇b_scale/L_scale ? 1 : 0) for x in ∇²b]
+        front_filter = ∇b_filter .| ∇²b_filter
+        front_highlight[frame, :, :] = front_filter
 
-        L_scale = 4000
-        m_cut = Int(round((xb[end] - xb[1])/L_scale))
-        n_cut = Int(round((yb[end] - yb[1])/L_scale))
-        filt_abs∇b = gaussian_filter_2d(abs∇b, m_cut, n_cut)
-        b_x_filt = gaussian_filter_2d(b_x, m_cut, n_cut)
-        b_y_filt = gaussian_filter_2d(b_y, m_cut, n_cut)
-        abs_filt∇b = (b_x_filt.^2 + b_y_filt.^2) .^ 0.5
-        𝒻 = abs_filt∇b ./ filt_abs∇b
-        front_diagnose[frame, :, :] = 𝒻 .* front_filt
-        @info maximum(𝒻 .* front_filt)
+        #filt_abs∇b = gaussian_filter_2d(abs∇b, m_cut, n_cut)
+        #b_x_filt = gaussian_filter_2d(b_x, m_cut, n_cut)
+        #b_y_filt = gaussian_filter_2d(b_y, m_cut, n_cut)
+        #abs_filt∇b = (b_x_filt.^2 + b_y_filt.^2) .^ 0.5
+        #𝒻 = abs_filt∇b ./ filt_abs∇b
+        #front_diagnose[frame, :, :] = 𝒻 .* front_filt
 
     end
 
@@ -448,7 +361,7 @@ function front_detection2(label)
     this_front_highlight = lift(frame -> front_highlight[frame, :, :], frame)
     fig = Figure()
     ax_∇b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\nabla b\text{ detection}")
-    hm_b = heatmap!(ax_∇b, xb/1kilometer, yb/1kilometer, this_front_diagnose; colorrange = (0, 1));
+    hm_b = heatmap!(ax_∇b, xb/1kilometer, yb/1kilometer, this_front_highlight; colorrange = (0, 1));
 
     display(fig)
     
