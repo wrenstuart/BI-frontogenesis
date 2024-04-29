@@ -70,8 +70,8 @@ function ani_xy(label)
     ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b")
     ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f")
     hm_b = heatmap!(ax_b, xb/1kilometer, yb/1kilometer, b_xy; colorrange = (-0.5*b_max, 1.5*b_max));
-    #hm_ζ₃ = heatmap!(ax_ζ, xζ₃/1kilometer, yζ₃/1kilometer, ζ_on_f; colormap = :coolwarm, colorrange = (-ζ₃_max/f, ζ₃_max/f));
-    hm_ζ₃ = heatmap!(ax_ζ, xζ₃/1kilometer, yζ₃/1kilometer, e; colormap = :coolwarm, colorrange = (-5f^2, 5f^2));
+    hm_ζ₃ = heatmap!(ax_ζ, xζ₃/1kilometer, yζ₃/1kilometer, ζ_on_f; colormap = :coolwarm, colorrange = (-ζ₃_max/f, ζ₃_max/f));
+    #hm_ζ₃ = heatmap!(ax_ζ, xζ₃/1kilometer, yζ₃/1kilometer, e; colormap = :coolwarm, colorrange = (-5f^2, 5f^2));
     Colorbar(fig[1, 1][1, 2], hm_b)
     Colorbar(fig[1, 2][1, 2], hm_ζ₃)
 
@@ -347,12 +347,12 @@ function front_detection(label, ∇b_scale = 5e-6, L_scale = 8000)
         front_filter = ∇b_filter .| ∇²b_filter
         front_highlight[frame, :, :] = front_filter
 
-        #filt_abs∇b = gaussian_filter_2d(abs∇b, m_cut, n_cut)
-        #b_x_filt = gaussian_filter_2d(b_x, m_cut, n_cut)
-        #b_y_filt = gaussian_filter_2d(b_y, m_cut, n_cut)
-        #abs_filt∇b = (b_x_filt.^2 + b_y_filt.^2) .^ 0.5
-        #𝒻 = abs_filt∇b ./ filt_abs∇b
-        #front_diagnose[frame, :, :] = 𝒻 .* front_filt
+        filt_abs∇b = gaussian_filter_2d(abs∇b, m_cut, n_cut)
+        b_x_filt = gaussian_filter_2d(b_x, m_cut, n_cut)
+        b_y_filt = gaussian_filter_2d(b_y, m_cut, n_cut)
+        abs_filt∇b = (b_x_filt.^2 + b_y_filt.^2) .^ 0.5
+        𝒻 = abs_filt∇b ./ filt_abs∇b
+        front_diagnose[frame, :, :] = 𝒻 .* front_filt
 
     end
 
@@ -361,7 +361,7 @@ function front_detection(label, ∇b_scale = 5e-6, L_scale = 8000)
     this_front_highlight = lift(frame -> front_highlight[frame, :, :], frame)
     fig = Figure()
     ax_∇b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\nabla b\text{ detection}")
-    hm_b = heatmap!(ax_∇b, xb/1kilometer, yb/1kilometer, this_front_highlight; colorrange = (0, 1));
+    hm_b = heatmap!(ax_∇b, xb/1kilometer, yb/1kilometer, this_front_diagnose; colorrange = (0, 1));
 
     display(fig)
     
