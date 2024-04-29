@@ -352,7 +352,7 @@ function front_detection(label, ∇b_scale = 5e-6, L_scale = 8000)
         b_y_filt = gaussian_filter_2d(b_y, m_cut, n_cut)
         abs_filt∇b = (b_x_filt.^2 + b_y_filt.^2) .^ 0.5
         𝒻 = abs_filt∇b ./ filt_abs∇b
-        front_diagnose[frame, :, :] = 𝒻 .* front_filt
+        front_diagnose[frame, :, :] = 𝒻 .* front_filter
 
     end
 
