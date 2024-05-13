@@ -35,7 +35,7 @@ function snap_ζ_xy(label, frac)
 
     # Calculate the maximum relative vorticity and buoyancy flux to set the scale for the colourmap
     ζ_max = maximum(ζ_xy)
-    ζ_max = 20
+    ζ_max = minimum([ζ_max, 20f])
 
     # Create the plot, starting at t = 0
     # This will be updated as the observable iter is updated
@@ -130,6 +130,7 @@ function snap_δ_xy(label, frac)
 
     # Calculate the maximum relative vorticity and buoyancy flux to set the scale for the colourmap
     ζ_max = maximum(abs.(ζ_xy))
+    ζ_max = minimum([ζ_max, 20f])
 
     # Create the plot, starting at t = 0
     # This will be updated as the observable iter is updated
@@ -166,7 +167,7 @@ function per(i,N)
     mod(i-1, N) + 1
 end
 
-function snap_fdetect(label, frac, ∇b_scale = 1e-6, L_scale = 8000)
+function snap_fdetect(label, frac, ∇b_scale = 1e-7, L_scale = 8000)
 
     filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
 
