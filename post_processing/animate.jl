@@ -142,6 +142,8 @@ function ani_xz(label)
     # This will be updated as the observable iter is updated
     iter[] = 0
     fig = Figure(size = (1280, 720))
+    push!(vbox(), fig)
+    title!(layout, "My Figure Title")
     ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b")
     ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f")
     hm_b = heatmap!(ax_b, xb/1kilometer, zb/1kilometer, b_xz; colorrange = (-2.5*b_max, 1.5*b_max));
@@ -341,10 +343,10 @@ function front_detection(label, ∇b_scale = 5e-6, L_scale = 8000)
         b_x = file["timeseries/b_x/$iter"][:, :, 1]
         b_y = file["timeseries/b_y/$iter"][:, :, 1]
         abs∇b = [(x < 1e-4 ? x : 0) for x in (b_x.^2 + b_y.^2) .^ 0.5]
-        ∇²b = [(b_x[per(i+1,M),j] - b_x[per(i-1,M),j])/2Δx + (b_y[i,per(j+1,N)] - b_y[i,per(j-1,N)])/2Δy for i in 1:M, j in 1:N]
+        #∇²b = [(b_x[per(i+1,M),j] - b_x[per(i-1,M),j])/2Δx + (b_y[i,per(j+1,N)] - b_y[i,per(j-1,N)])/2Δy for i in 1:M, j in 1:N]
         ∇b_filter = [(x > ∇b_scale ? 0 : 0) for x in abs∇b]
-        ∇²b_filter = [(x > 10 * ∇b_scale/L_scale ? 1 : 0) for x in ∇²b]
-        front_filter = ∇b_filter .| ∇²b_filter
+        #∇²b_filter = [(x > 10 * ∇b_scale/L_scale ? 1 : 0) for x in ∇²b]
+        front_filter = ∇b_filter# .| ∇²b_filter
         front_highlight[frame, :, :] = front_filter
 
         filt_abs∇b = gaussian_filter_2d(abs∇b, m_cut, n_cut)
