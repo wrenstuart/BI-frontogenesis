@@ -167,7 +167,7 @@ function per(i,N)
     mod(i-1, N) + 1
 end
 
-function snap_fdetect(label, frac, ∇b_scale = 1e-7, L_scale = 8000)
+function snap_fdetect(label, frac, ∇b_scale = 1e-6, L_scale = 8000)
 
     filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
 
@@ -198,7 +198,7 @@ function snap_fdetect(label, frac, ∇b_scale = 1e-7, L_scale = 8000)
     b_y = file["timeseries/b_y/$iter"][:, :, 1]
     abs∇b = [(x < 1e-4 ? x : 0) for x in (b_x.^2 + b_y.^2) .^ 0.5]
     #∇²b = [(b_x[per(i+1,M),j] - b_x[per(i-1,M),j])/2Δx + (b_y[i,per(j+1,N)] - b_y[i,per(j-1,N)])/2Δy for i in 1:M, j in 1:N]
-    ∇b_filter = [(x > ∇b_scale ? 0 : 0) for x in abs∇b]
+    ∇b_filter = [(x > ∇b_scale ? 1 : 0) for x in abs∇b]
     #∇²b_filter = [(x > 10 * ∇b_scale/L_scale ? 1 : 0) for x in ∇²b]
     front_filter = ∇b_filter# .| ∇²b_filter
     front_highlight = front_filter
