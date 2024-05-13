@@ -167,7 +167,7 @@ function per(i,N)
     mod(i-1, N) + 1
 end
 
-function snap_fdetect(label, frac, ∇b_scale = 1e-6, L_scale = 8000)
+function snap_fdetect(label, frac, ∇b_scale = 5e-6, L_scale = 8000)
 
     filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
 
