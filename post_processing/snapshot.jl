@@ -150,6 +150,22 @@ function snap_δ_xy(label, frac)
 
 end
 
+function gaussian_filter_2d(z, m_cut, n_cut)
+    (M, N) = size(z)
+    z_f = fft(z)
+    for i in 1:M, j in 1:N
+        m = minimum([mod(i-1,M), mod(1-i,M)])
+        n = minimum([mod(j-1,N), mod(1-j,N)])
+        z_f[i, j] *= exp(-(m^2/m_cut^2 + n^2/n_cut^2))
+    end
+    real(ifft(z_f))
+end
+
+function per(i,N)
+    # For periodic arrays
+    mod(i-1, N) + 1
+end
+
 function snap_fdetect(label, frac, ∇b_scale = 1e-6, L_scale = 8000)
 
     filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
