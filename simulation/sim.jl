@@ -62,7 +62,7 @@ function run_sim(params)
     B_field = BackgroundField(background.B)
     U_field = BackgroundField(background.U)
     diff_h = HorizontalScalarDiffusivity(ν = params.ν_h, κ = params.ν_h)
-    diff_v = HorizontalScalarDiffusivity(ν = params.ν_v, κ = params.ν_v)
+    diff_v = VerticalScalarDiffusivity(ν = params.ν_v, κ = params.ν_v)
 
     # Build the model
     model = NonhydrostaticModel(; grid,
