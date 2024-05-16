@@ -142,8 +142,6 @@ function ani_xz(label)
     # This will be updated as the observable iter is updated
     iter[] = 0
     fig = Figure(size = (1280, 720))
-    push!(vbox(), fig)
-    title!(layout, "My Figure Title")
     ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b")
     ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f")
     hm_b = heatmap!(ax_b, xb/1kilometer, zb/1kilometer, b_xz; colorrange = (-2.5*b_max, 1.5*b_max));
