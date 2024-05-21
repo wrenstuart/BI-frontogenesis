@@ -2,6 +2,7 @@
 
 using Oceananigans
 using Printf
+using Oceananigans.TurbulenceClosures
 
 include("../QOL.jl")
 
@@ -61,7 +62,11 @@ function run_sim(params)
     # Set the diffusivities and background fields
     B_field = BackgroundField(background.B)
     U_field = BackgroundField(background.U)
-    diff_h = HorizontalScalarDiffusivity(ν = params.ν_h, κ = params.ν_h)
+    if sim_params().horizontal_hyperviscosity
+        diff_h = ScalarBiharmonicDiffusivity(Oceananigans.TurbulenceClosures.HorizontalFormulation(), Float64, ν = params.ν_h, κ = params.ν_h)
+    else
+        diff_h = HorizontalScalarDiffusivity(ν = params.ν_h, κ = params.ν_h)
+    end
     diff_v = VerticalScalarDiffusivity(ν = params.ν_v, κ = params.ν_v)
 
     # Build the model
