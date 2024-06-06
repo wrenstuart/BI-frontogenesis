@@ -74,7 +74,7 @@ function basic_plots(label, Ri)
     ℬ = ℬ_vol
     t, μ_ζ, σ²_ζ, skew_ζ = surface_stats(label, "ζ₃")
     t, μ_δ, σ²_δ, skew_δ = surface_stats(label, "δ")
-    t, μ_Ri, ~, ~ = surface_function_stats(label, x -> - f^2 .* x[1] ./ (u_z.^2 .+ v_z.^2), ["b_z", "u_z", "v_z"])
+    t, μ_Ri, ~, ~ = surface_function_stats(label, x -> - f^2 .* x[1] ./ (x[2].^2 .+ x[3].^2), ["b_z", "u_z", "v_z"])
     #μ_Ri = t .* 0
 
     fig, ax, l1 = lines(t .* 1e-4, skew_ζ)
