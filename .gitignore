@@ -5,3 +5,4 @@ simulation/*_input.jl
 *.mp4
 *DS_store
 *.pdf
+*.png
