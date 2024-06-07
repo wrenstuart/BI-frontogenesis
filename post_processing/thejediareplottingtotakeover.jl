@@ -110,8 +110,8 @@ function ζ_δ_joint_freq(ζ, δ)
     ζ = vec(ζ)
     δ = vec(δ)
     n = 200
-    a = -5f
-    b = 5f
+    a = -8f
+    b = 8f
     Δ  = (b-a) / (n-2)
     midpoints = a + 0.5Δ : Δ : b - 0.5Δ
     freq = zeros(Float64, (n, n))
@@ -142,15 +142,15 @@ function snapshots(label, t)
 
     fig = Figure()
     ax = Axis(fig[1, 1], ylabel=L"\text{Probability density}")
-    h1 = stephist!(vec(ζ/f), bins = 100, normalization = :pdf, label = L"\zeta/f")
-    h2 = stephist!(vec(δ/f), bins = 100, normalization = :pdf, label = L"\delta/f")
+    h1 = stephist!(vec(ζ/f), bins = 500, normalization = :pdf, label = L"\zeta/f")
+    h2 = stephist!(vec(δ/f), bins = 500, normalization = :pdf, label = L"\delta/f")
     axislegend()
     xlims!(ax, (-6, 6))
     display(fig)
     save("pretty_things/" * label * "_hist.pdf", fig)
 
     ζ_ax, δ_ax, freq = ζ_δ_joint_freq(ζ, δ)
-    fig = Figure(resolution = (600,600), fontsize = 24)
+    fig = Figure(resolution = (600,600), fontsize = 20)
     ax = Axis(fig[1, 1], xlabel = L"\zeta/f", ylabel = L"\delta/f",
     title = L"\text{Joint histogram of vorticity and divergence}")
     hm = heatmap!(ax, ζ_ax/f, δ_ax/f, -log.(1 .+ freq), colormap = :bilbao)
@@ -159,7 +159,7 @@ function snapshots(label, t)
     save("pretty_things/" * label * "_joint-hist.png", fig)
 
     ζ_max = maximum(ζ)
-    fig = Figure(fontsize = 24)
+    fig = Figure(fontsize = 20)
     ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b/\mathrm{m\,s^{-2}}", aspect = 1)
     ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f", aspect = 1)
     hm_b = heatmap!(ax_b, x/1kilometer, y/1kilometer, b);
