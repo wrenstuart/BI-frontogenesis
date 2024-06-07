@@ -110,8 +110,8 @@ function ζ_δ_joint_freq(ζ, δ)
     ζ = vec(ζ)
     δ = vec(δ)
     n = 200
-    a = -8f
-    b = 8f
+    a = -12f
+    b = 12f
     Δ  = (b-a) / (n-2)
     midpoints = a + 0.5Δ : Δ : b - 0.5Δ
     freq = zeros(Float64, (n, n))
@@ -142,8 +142,8 @@ function snapshots(label, t)
 
     fig = Figure()
     ax = Axis(fig[1, 1], ylabel=L"\text{Probability density}")
-    h1 = stephist!(vec(ζ/f), bins = 500, normalization = :pdf, label = L"\zeta/f")
-    h2 = stephist!(vec(δ/f), bins = 500, normalization = :pdf, label = L"\delta/f")
+    h1 = stephist!(vec(ζ/f), bins = 1000, normalization = :pdf, label = L"\zeta/f")
+    h2 = stephist!(vec(δ/f), bins = 1000, normalization = :pdf, label = L"\delta/f")
     axislegend()
     xlims!(ax, (-6, 6))
     display(fig)
