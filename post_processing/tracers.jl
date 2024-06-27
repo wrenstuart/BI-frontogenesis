@@ -146,17 +146,21 @@ function lagr_func_track(data::FileData, f::Function, input_labels::Vector{Strin
 
 end
 
-label = "test"
-f = 1e-4
-data = topdata(label)
-drifters = tracer_grid(data, 3)
-fig = Figure()
-ax = Axis(fig[1, 1])
-for drifter in drifters
-    t, δ = lagr_func_track(data, x -> x[1]/f, ["δ"], drifter)
-    lines!(ax, t, δ)
+function tracer_δ(label)
+
+    f = 1e-4
+    data = topdata(label)
+    drifters = tracer_grid(data, 3)
+    fig = Figure()
+    ax = Axis(fig[1, 1])
+    for drifter in drifters
+        t, δ = lagr_func_track(data, x -> x[1]/f, ["δ"], drifter)
+        lines!(ax, t, δ)
+    end
+    display(fig)
+    save("pretty_things/tracer-delta_" * label * ".pdf", fig)
+    
 end
-display(fig)
 
 function ani_tracers(label::String)
 
