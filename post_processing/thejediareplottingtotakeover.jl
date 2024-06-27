@@ -11,7 +11,7 @@ function surface_stats(file_label, var_label)
 end
 
 function surface_function_stats(file_label, f, input_labels)
-    # f is a function on a tuple X, the value of which are determined by input_labels
+    # f is a (broadcasting) function on a tuple X, the value of which are determined by input_labels
     # E.g. one could have f = 𝐮 -> (𝐮[1].^2 + 𝐮[2].^2 + 𝐮[3].^2) / 2 for kinetic energy,
     # and input_labels would be ["u", "v", "w"] here
     # (note that each input of f must be treated as a vector)
