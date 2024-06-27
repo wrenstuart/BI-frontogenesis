@@ -88,7 +88,7 @@ function ani_tracers(label::String)
     file = jldopen(filename_xy_top)
     iterations = parse.(Int, keys(file["timeseries/t"]))
 
-    tracers = tracer_grid("test", 5)
+    tracers = tracer_grid(label, 5)
     f = 1e-4
 
     frame = Observable(1)
