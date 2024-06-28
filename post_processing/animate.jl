@@ -8,7 +8,9 @@ using Statistics
 using OffsetArrays
 using FFTW
 
-function ani_xy(label)
+
+
+function ani_xy(label::String, a::Float64, b::Float64)
 
     # Set the two dimensional parameters
     H = 50    # Depth of mixed layer
@@ -85,9 +87,13 @@ function ani_xy(label)
     record(i -> iter[] = i,
            fig,
            "pretty_things/" * label * ".mp4",
-           iterations[Int64(round(length(iterations)*0.5)) : length(iterations)],
+           iterations[Int64(round(length(iterations) * a )) : Int64(round(length(iterations) * b))],
            framerate = 20)
 
+end
+
+function ani_xy(label::String)
+    ani_xy(label::String, 0.5, 1.0)
 end
 
 function ani_xz(label)
