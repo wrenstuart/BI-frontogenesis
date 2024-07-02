@@ -120,6 +120,18 @@ function tracer_grid(data::FileData, n::Int)
     return vec([tracer_release(data, [data.Lx*(i-1)/n, data.Ly*(j-1)/n]) for i = 1:n, j = 1:n])
 end
 
+function extract_tracers(label::String)
+    
+    filename_tracers = "raw_data/" * label * "_particles.jld2"
+    file = jldopen(filename_tracers)
+    tracers_prim = [[file["timeseries/particles/$iter"].x, file["timeseries/particles/$iter"].y] for iter in parse.(Int, keys(file["timeseries/t"]))]
+    # Above is indexed by [iter][x/y][tracer_number]
+    n_iters = length(tracers_prim)
+    n_tracers = length(tracers_prim[1][1])
+    return [[[tracers_prim[i][j][k] for j = 1 : 2] for i = 1 : n_iters] for k = 1 : n_tracers]
+
+end
+
 function lagr_track(data::FileData, var_label::String, drifter::Vector{Vector{Float64}})
     return lagr_func_track(data, x -> x[1], [var_label], drifter)
 end
@@ -150,12 +162,18 @@ function tracer_δ(label)
 
     f = 1e-4
     data = topdata(label)
-    drifters = tracer_grid(data, 3)
+    drifters = tracer_grid(data, 3)[1:5]
     fig = Figure()
     ax = Axis(fig[1, 1])
     for drifter in drifters
         t, δ = lagr_func_track(data, x -> x[1]/f, ["δ"], drifter)
-        lines!(ax, t, δ)
+        i₁ = Int(round(length(t)/3))
+        i₂ = Int(round(2length(t)/3))
+        δ_smooth = zeros(length(δ))
+        for i = i₁ : i₂
+            δ_smooth[i] = sum(δ[i-4:i+4])/9
+        end
+        lines!(ax, t[i₁:i₂], δ_smooth[i₁:i₂])
     end
     display(fig)
     save("pretty_things/tracer-delta_" * label * ".pdf", fig)
@@ -164,7 +182,7 @@ end
 
 function ani_tracers(label::String)
 
-    data = topdata(file)
+    data = topdata(label)
     iterations = parse.(Int, keys(data.file["timeseries/t"]))
     tracers = tracer_grid(data, 5)
     f = 1e-4
@@ -180,10 +198,58 @@ function ani_tracers(label::String)
     end
 
     fig = Figure()
-    ax = Axis(fig[1, 1])
-    heatmap!(ax, x_grid/1e3, y_grid/1e3, ζ_on_f, colormap = :coolwarm, colorrange = (-20, 20));
+    ax = Axis(fig[1, 1], aspect = 1)
+    heatmap!(ax, data.x/1e3, data.y/1e3, ζ_on_f, colormap = :coolwarm, colorrange = (-20, 20));
     scatter!(ax, tracers_now_x, tracers_now_y, marker = '.', markersize = 30, color = :black)
 
-    record(i -> frame[] = i, fig, "pretty_things/tracer_" * label * ".mp4", Int64(round(length(iterations)*0.5)) : length(iterations), framerate = 20)
+    record(i -> frame[] = i, fig, "pretty_things/tracer_" * label * ".mp4", 1 : length(iterations), framerate = 20)
 
+end
+
+function tracer_δ_2(label)
+
+    f = 1e-4
+    data = topdata(label)
+    drifters = extract_tracers(label)[1:5]
+    fig = Figure()
+    ax = Axis(fig[1, 1])
+    for drifter in drifters
+        t, δ = lagr_func_track(data, x -> x[1]/f, ["δ"], drifter)
+        i₁ = Int(round(length(t)/3))
+        i₂ = Int(round(2length(t)/3))
+        δ_smooth = zeros(length(δ))
+        for i = i₁ : i₂
+            δ_smooth[i] = sum(δ[i-4:i+4])/9
+        end
+        lines!(ax, t[i₁:i₂], δ_smooth[i₁:i₂])
+    end
+    display(fig)
+    save("pretty_things/tracer-delta_" * label * ".pdf", fig)
+    
+end
+
+function ani_tracers_2(label::String)
+    
+    data = topdata(label)
+    iterations = parse.(Int, keys(data.file["timeseries/t"]))
+    tracers = extract_tracers(label)
+    f = 1e-4
+
+    frame = Observable(1)
+
+    tracers_now_x = lift(i -> [tracer[i][1]/1e3 for tracer in tracers], frame)
+    tracers_now_y = lift(i -> [tracer[i][2]/1e3 for tracer in tracers], frame)
+
+    ζ_on_f = lift(frame) do i
+        iter = iterations[i]
+        data.file["timeseries/ζ₃/$iter"][:, :, 1]/f
+    end
+
+    fig = Figure()
+    ax = Axis(fig[1, 1], aspect = 1)
+    heatmap!(ax, data.x/1e3, data.y/1e3, ζ_on_f, colormap = :coolwarm, colorrange = (-20, 20));
+    scatter!(ax, tracers_now_x, tracers_now_y, marker = '.', markersize = 30, color = :black)
+
+    record(i -> frame[] = i, fig, "pretty_things/tracer_" * label * ".mp4", 1 : length(iterations), framerate = 20)
+    
 end
