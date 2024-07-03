@@ -132,10 +132,6 @@ function extract_tracers(label::String)
 
 end
 
-function lagr_track(data::FileData, var_label::String, drifter::Vector{Vector{Float64}})
-    return lagr_func_track(data, x -> x[1], [var_label], drifter)
-end
-
 function lagr_func_track(data::FileData, f::Function, input_labels::Vector{String}, drifter::Vector{Vector{Float64}})
 
     # f is a (scalar) function on a tuple X, the value of which are determined by input_labels
@@ -158,6 +154,19 @@ function lagr_func_track(data::FileData, f::Function, input_labels::Vector{Strin
 
 end
 
+function lagr_track(data::FileData, var_label::String, drifter::Vector{Vector{Float64}})
+    return lagr_func_track(data, x -> x[1], [var_label], drifter)
+end
+
+function lagr_track(data::FileData, var_func::Function, drifter::Vector{Vector{Float64}})
+
+    # Here, var_func returns a string of input labels and a function on the datapoints recovered by those labels from the simulation
+    # E.g. u_y() = (x -> x[1] - x[2], ["δ", "u_x"])
+    f, input_labels = var_func()
+    return lagr_func_track(data, f, input_labels, drifter)
+
+end
+
 function tracer_δ(label)
 
     f = 1e-4
@@ -174,6 +183,43 @@ function tracer_δ(label)
             δ_smooth[i] = sum(δ[i-4:i+4])/9
         end
         lines!(ax, t[i₁:i₂], δ_smooth[i₁:i₂])
+    end
+    display(fig)
+    save("pretty_things/tracer-delta_" * label * ".pdf", fig)
+    
+end
+
+function Ri_()
+    
+    function Ri_func(input)
+
+        b_z = input[1]
+        u_z = input[2]
+        v_z = input[3]
+        return b_z / (u_z^2 + v_z^2)
+
+    end
+
+    return (Ri_func, ["b_z", "u_z", "v_z"])
+
+end
+
+function tracer_track(label, var_to_track::Function)
+
+    data = topdata(label)
+    drifters = extract_tracers(label)[1:5]
+    fig = Figure()
+    ax = Axis(fig[1, 1], limits = (nothing, (-1, 1)))
+    for drifter in drifters
+        t, var = lagr_track(data, var_to_track, drifter)
+        i₁ = Int(round(length(t)/3))
+        i₂ = Int(round(2length(t)/3))
+        var_smooth = zeros(length(var))
+        for i = i₁ : i₂
+            var_smooth[i] = sum(var[i-4:i+4])/9
+        end
+        lines!(ax, t[i₁:i₂], var_smooth[i₁:i₂])
+        #lines!(ax, t[i₁:i₂], var[i₁:i₂])
     end
     display(fig)
     save("pretty_things/tracer-delta_" * label * ".pdf", fig)
