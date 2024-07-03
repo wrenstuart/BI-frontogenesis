@@ -43,7 +43,7 @@ function topdata(label::String)
     return data
 end
 
-function grid_interpolate(data::FileData, var::String, x::Float64, y::Float64, iter::Int)
+#=function grid_interpolate(data::FileData, var::String, x::Float64, y::Float64, iter::Int)
 
     i₋ = Int(floor(x/data.Lx * data.Nx)) + 1
     i₊ = i₋ % data.Nx + 1
@@ -59,6 +59,46 @@ function grid_interpolate(data::FileData, var::String, x::Float64, y::Float64, i
     f = x_frac * y_frac * f₋₋ + x_frac * (1-y_frac) * f₋₊ + (1-x_frac) * y_frac * f₊₋ + (1-x_frac) * (1-y_frac) * f₊₊
     
     return f
+
+end=#
+
+function grid_interpolate(data::FileData, var::String, x::Float64, y::Float64, iter::Int)
+
+    i₋ = Int(floor(x/data.Lx * data.Nx)) + 1
+    i₊ = i₋ % data.Nx + 1
+    j₋ = Int(floor(y/data.Ly * data.Ny)) + 1
+    j₊ = j₋ % data.Ny + 1
+    x_frac = (x - data.x[i₋]) / data.Δx
+    y_frac = (y - data.y[j₋]) / data.Δy
+
+    f₋₋ = data.file["timeseries/$var/$iter"][i₋, j₋, 1]
+    f₋₊ = data.file["timeseries/$var/$iter"][i₋, j₊, 1]
+    f₊₋ = data.file["timeseries/$var/$iter"][i₊, j₋, 1]
+    f₊₊ = data.file["timeseries/$var/$iter"][i₊, j₊, 1]
+    f = (1-x_frac) * (1-y_frac) * f₋₋ + (1-x_frac) * y_frac * f₋₊ + x_frac * (1-y_frac) * f₊₋ + x_frac * y_frac * f₊₊
+    
+    return f
+
+end
+
+function grid_nearest(data::FileData, var::String, x::Float64, y::Float64, iter::Int)
+
+    i₋ = Int(floor(x/data.Lx * data.Nx)) + 1
+    i₊ = i₋ % data.Nx + 1
+    j₋ = Int(floor(y/data.Ly * data.Ny)) + 1
+    j₊ = j₋ % data.Ny + 1
+    if x - data.x[i₋] < data.x[i₊] - x
+        i = i₋
+    else
+        i = i₊
+    end
+    if y - data.y[j₋] < data.y[j₊] - y
+        j = j₋
+    else
+        j = j₊
+    end
+
+    return data.file["timeseries/$var/$iter"][i, j, 1]
 
 end
 
@@ -146,7 +186,7 @@ function lagr_func_track(data::FileData, f::Function, input_labels::Vector{Strin
         iter = iterations[i]
         t[i] = data.file["timeseries/t/$iter"]
         x, y = drifter[i]
-        input = [grid_interpolate(data, var, x, y, iter) for var in input_labels]
+        input = [grid_nearest(data, var, x, y, iter) for var in input_labels]
         output[i] = f(input)
     end
 
@@ -265,7 +305,7 @@ function tracer_δ_2(label)
         i₂ = Int(round(2length(t)/3))
         δ_smooth = zeros(length(δ))
         for i = i₁ : i₂
-            δ_smooth[i] = sum(δ[i-4:i+4])/9
+            δ_smooth[i] = sum(δ[i-2:i+2] .* [0.5, 1, 2, 1, 0.5])/5
         end
         lines!(ax, t[i₁:i₂], δ_smooth[i₁:i₂])
     end
