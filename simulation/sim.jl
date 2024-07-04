@@ -3,6 +3,7 @@
 using Oceananigans
 using Printf
 using Oceananigans.TurbulenceClosures
+using StructArrays
 
 include("../QOL.jl")
 
@@ -69,6 +70,15 @@ function run_sim(params)
     end
     diff_v = VerticalScalarDiffusivity(ν = params.ν_v, κ = params.ν_v)
 
+    # Introduce Lagrangian particles in an n × n grid
+    n = 20
+    x₀ = [domain.x * (i % n) / n for i = 0 : n^2-1]
+    y₀ = [domain.y * (i ÷ n) / n for i = 0: n^2-1]
+    z₀ = zeros(n^2)
+    lagrangian_drifters = LagrangianParticles(x = x₀, y = y₀, z = z₀)
+
+    # "Remember to use CuArray instead of regular Array when storing particle locations and properties on the GPU"?????
+
     # Build the model
     model = NonhydrostaticModel(; grid,
               advection = params.advection_scheme(),  # Specify the advection scheme.  Another good choice is WENO() which is more accurate but slower
@@ -78,7 +88,8 @@ function run_sim(params)
               background_fields = (b = B_field, u = U_field),
               coriolis = coriolis = FPlane(f = p.f),
               closure = (diff_h, diff_v),
-              boundary_conditions = BCs
+              boundary_conditions = BCs,
+              particles = lagrangian_drifters
               )
     
     # Set initial conditions
@@ -145,6 +156,14 @@ function run_sim(params)
     b̅ = Field(Average(b, dims = 2))
     ℬ = Field(w * b_pert)
     avg_ℬ = Field(Average(ℬ, dims = 2))
+
+    # Output Lagrangian particles
+    filename = "raw_data/" * label * "_particles"
+    simulation.output_writers[:particles] =
+        JLD2OutputWriter(model, (particles = model.particles,),
+                                filename = filename * ".jld2",
+                                schedule = TimeInterval(p.T/40),
+                                overwrite_existing = true)
 
     # Output the slice y = 0
     filename = "raw_data/" * label * "_BI_xz"
