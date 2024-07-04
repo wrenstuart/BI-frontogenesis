@@ -3,7 +3,6 @@
 using Oceananigans
 using Printf
 using Oceananigans.TurbulenceClosures
-using StructArrays
 
 include("../QOL.jl")
 
