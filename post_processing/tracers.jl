@@ -43,25 +43,6 @@ function topdata(label::String)
     return data
 end
 
-#=function grid_interpolate(data::FileData, var::String, x::Float64, y::Float64, iter::Int)
-
-    i₋ = Int(floor(x/data.Lx * data.Nx)) + 1
-    i₊ = i₋ % data.Nx + 1
-    j₋ = Int(floor(y/data.Ly * data.Ny)) + 1
-    j₊ = j₋ % data.Ny + 1
-    x_frac = (x - data.x[i₋]) / data.Δx
-    y_frac = (y - data.y[j₋]) / data.Δy
-
-    f₋₋ = data.file["timeseries/$var/$iter"][i₋, j₋, 1]
-    f₋₊ = data.file["timeseries/$var/$iter"][i₋, j₊, 1]
-    f₊₋ = data.file["timeseries/$var/$iter"][i₊, j₋, 1]
-    f₊₊ = data.file["timeseries/$var/$iter"][i₊, j₊, 1]
-    f = x_frac * y_frac * f₋₋ + x_frac * (1-y_frac) * f₋₊ + (1-x_frac) * y_frac * f₊₋ + (1-x_frac) * (1-y_frac) * f₊₊
-    
-    return f
-
-end=#
-
 function grid_interpolate(data::FileData, var::String, x::Float64, y::Float64, iter::Int)
 
     i₋ = Int(floor(x/data.Lx * data.Nx)) + 1
@@ -101,6 +82,11 @@ function grid_nearest(data::FileData, var::String, x::Float64, y::Float64, iter:
     return data.file["timeseries/$var/$iter"][i, j, 1]
 
 end
+
+#=
+
+# Old functions for releasing drifters in post_processing (removed in favour of
+# drifters handled by OCeananigans during simulation)
 
 function tracer_release(label::String, 𝐱₀::Vector{Float64})
 
@@ -160,6 +146,8 @@ function tracer_grid(data::FileData, n::Int)
     return vec([tracer_release(data, [data.Lx*(i-1)/n, data.Ly*(j-1)/n]) for i = 1:n, j = 1:n])
 end
 
+=#
+
 function extract_tracers(label::String)
     
     filename_tracers = "raw_data/" * label * "_particles.jld2"
@@ -172,13 +160,12 @@ function extract_tracers(label::String)
 
 end
 
-function lagr_func_track(data::FileData, f::Function, input_labels::Vector{String}, drifter::Vector{Vector{Float64}})
-
-    # f is a (scalar) function on a tuple X, the value of which are determined by input_labels
-    # E.g. one could have f = 𝐮 -> (𝐮[1]^2 + 𝐮[2]^2 + 𝐮[3]^2) / 2 for kinetic energy, and
-    # input_labels would be ["u", "v", "w"] here
-    # (note that each input of f must be treated as a vector)
-
+function lagr_track(data::FileData, var_to_track::Tuple{Function, Vector{String}}, drifter::Vector{Vector{Float64}})
+    
+    # Tracks the value of the function var_to_track[1] on variables with labels given by var_to_track[2]
+    # along the trajectory of drifter
+    
+    f, input_labels = var_to_track
     iterations = parse.(Int, keys(data.file["timeseries/t"]))
     t = [data.file["timeseries/t/$iter"] for iter in iterations]
     output = zeros(Float64, length(iterations))
@@ -194,66 +181,75 @@ function lagr_func_track(data::FileData, f::Function, input_labels::Vector{Strin
 
 end
 
-function lagr_track(data::FileData, var_label::String, drifter::Vector{Vector{Float64}})
-    return lagr_func_track(data, x -> x[1], [var_label], drifter)
-end
+function lagr_track(data::FileData, var_to_track::String, drifter::Vector{Vector{Float64}})
 
-function lagr_track(data::FileData, var_func::Function, drifter::Vector{Vector{Float64}})
+    # Track the value of the variable with label var_to_track
 
-    # Here, var_func returns a string of input labels and a function on the datapoints recovered by those labels from the simulation
-    # E.g. u_y() = (x -> x[1] - x[2], ["δ", "u_x"])
-    f, input_labels = var_func()
-    return lagr_func_track(data, f, input_labels, drifter)
+    return lagr_track(data, (x -> x[1], [var_to_track]), drifter)
 
 end
 
-function tracer_δ(label)
+# Define some plottable quantities
+
+function Ri_func(input)
+
+    b_z, u_z, v_z = input
+    return b_z / (u_z^2 + v_z^2)
+
+end
+
+function KE_func(input)
+
+    u, v, w = input
+    return (u^2 + v^2 + w^2) / 2
+
+end
+
+function ∇ₕb_func(input)
+
+    b_x, b_y = input
+    return (b_x^2 + b_y^2) ^ 0.5
+
+end
+
+function ζ_on_f_func(input)
 
     f = 1e-4
-    data = topdata(label)
-    drifters = tracer_grid(data, 3)[1:5]
-    fig = Figure()
-    ax = Axis(fig[1, 1])
-    for drifter in drifters
-        t, δ = lagr_func_track(data, x -> x[1]/f, ["δ"], drifter)
-        i₁ = Int(round(length(t)/3))
-        i₂ = Int(round(2length(t)/3))
-        δ_smooth = zeros(length(δ))
-        for i = i₁ : i₂
-            δ_smooth[i] = sum(δ[i-4:i+4])/9
-        end
-        lines!(ax, t[i₁:i₂], δ_smooth[i₁:i₂])
-    end
-    display(fig)
-    save("pretty_things/tracer-delta_" * label * ".pdf", fig)
+    ζ = input[1]
+    return ζ / f
     
 end
 
-function Ri_()
+function δ_on_f_func(input)
+
+    f = 1e-4
+    δ = input[1]
+    return δ / f
     
-    function Ri_func(input)
-
-        b_z = input[1]
-        u_z = input[2]
-        v_z = input[3]
-        return b_z / (u_z^2 + v_z^2)
-
-    end
-
-    return (Ri_func, ["b_z", "u_z", "v_z"])
-
 end
 
-function tracer_track(label, var_to_track::Function)
+plotting_vars = (Ri = (Ri_func, ["b_z", "u_z", "v_z"]),
+                 KE = (KE_func, ["u", "v", "w"]),
+                 ∇ₕb = (∇ₕb_func, ["b_x", "b_y"]),
+                 ζ_on_f = (ζ_on_f_func, ["ζ₃"]),
+                 δ_on_f = (δ_on_f_func, ["δ"]))
+
+function tracer_track(label::String, var_to_track::Union{Tuple{Function, Vector{String}}, String})
+
+    # var_to_track can either be a tuple [f, var_labels], wherein f is evaluated on variables with
+    # labels given by var_labels, or it can be a string, in which case just the variable with that
+    # label is evaluated
 
     data = topdata(label)
     drifters = extract_tracers(label)[1:5]
     fig = Figure()
-    ax = Axis(fig[1, 1], limits = (nothing, (-1, 1)))
+    ax = Axis(fig[1, 1])#, limits = (nothing, (-1, 1)))
     for drifter in drifters
         t, var = lagr_track(data, var_to_track, drifter)
-        i₁ = Int(round(length(t)/3))
-        i₂ = Int(round(2length(t)/3))
+        #=i₁ = Int(round(length(t)/3))
+        i₂ = Int(round(2length(t)/3))=#
+        i₁ = 5
+        i₂ = length(t) - 4
         var_smooth = zeros(length(var))
         for i = i₁ : i₂
             var_smooth[i] = sum(var[i-4:i+4])/9
@@ -267,54 +263,6 @@ function tracer_track(label, var_to_track::Function)
 end
 
 function ani_tracers(label::String)
-
-    data = topdata(label)
-    iterations = parse.(Int, keys(data.file["timeseries/t"]))
-    tracers = tracer_grid(data, 5)
-    f = 1e-4
-
-    frame = Observable(1)
-
-    tracers_now_x = lift(i -> [tracer[i][1]/1e3 for tracer in tracers], frame)
-    tracers_now_y = lift(i -> [tracer[i][2]/1e3 for tracer in tracers], frame)
-
-    ζ_on_f = lift(frame) do i
-        iter = iterations[i]
-        data.file["timeseries/ζ₃/$iter"][:, :, 1]/f
-    end
-
-    fig = Figure()
-    ax = Axis(fig[1, 1], aspect = 1)
-    heatmap!(ax, data.x/1e3, data.y/1e3, ζ_on_f, colormap = :coolwarm, colorrange = (-20, 20));
-    scatter!(ax, tracers_now_x, tracers_now_y, marker = '.', markersize = 30, color = :black)
-
-    record(i -> frame[] = i, fig, "pretty_things/tracer_" * label * ".mp4", 1 : length(iterations), framerate = 20)
-
-end
-
-function tracer_δ_2(label)
-
-    f = 1e-4
-    data = topdata(label)
-    drifters = extract_tracers(label)[1:5]
-    fig = Figure()
-    ax = Axis(fig[1, 1])
-    for drifter in drifters
-        t, δ = lagr_func_track(data, x -> x[1]/f, ["δ"], drifter)
-        i₁ = Int(round(length(t)/3))
-        i₂ = Int(round(2length(t)/3))
-        δ_smooth = zeros(length(δ))
-        for i = i₁ : i₂
-            δ_smooth[i] = sum(δ[i-2:i+2] .* [0.5, 1, 2, 1, 0.5])/5
-        end
-        lines!(ax, t[i₁:i₂], δ_smooth[i₁:i₂])
-    end
-    display(fig)
-    save("pretty_things/tracer-delta_" * label * ".pdf", fig)
-    
-end
-
-function ani_tracers_2(label::String)
     
     data = topdata(label)
     iterations = parse.(Int, keys(data.file["timeseries/t"]))
