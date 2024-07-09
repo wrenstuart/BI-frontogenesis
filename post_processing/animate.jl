@@ -61,7 +61,7 @@ function ani_xy(label::String, a::Float64, b::Float64)
         ζ₃_max = maximum([ζ₃_max, maximum(ζ₃_xy[])])
     end
 
-    ζ₃_max = minimum([ζ₃_max, 20*f])
+    ζ₃_max = minimum([ζ₃_max, f])
 
     @info "Drawing first frame"
 
@@ -87,7 +87,7 @@ function ani_xy(label::String, a::Float64, b::Float64)
     record(i -> iter[] = i,
            fig,
            "pretty_things/" * label * ".mp4",
-           iterations[Int64(round(length(iterations) * a )) : Int64(round(length(iterations) * b))],
+           iterations[maximum([Int64(round(length(iterations) * a )), 1]) : Int64(round(length(iterations) * b))],
            framerate = 20)
 
 end

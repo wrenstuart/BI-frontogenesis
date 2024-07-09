@@ -6,3 +6,5 @@ simulation/*_input.jl
 *DS_store
 *.pdf
 *.png
+commands-for-nohup
+*.out
