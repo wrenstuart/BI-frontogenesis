@@ -3,6 +3,7 @@
 using Oceananigans
 using Printf
 using Oceananigans.TurbulenceClosures
+using CUDA
 
 include("../QOL.jl")
 
@@ -74,6 +75,9 @@ function run_sim(params)
     x₀ = [domain.x * (i % n) / n for i = 0 : n^2-1]
     y₀ = [domain.y * (i ÷ n) / n for i = 0: n^2-1]
     z₀ = zeros(n^2)
+    if params.GPU
+        x₀, y₀, z₀ = CuArray.([x₀, y₀, z₀])
+    end
     lagrangian_drifters = LagrangianParticles(x = x₀, y = y₀, z = z₀)
 
     # "Remember to use CuArray instead of regular Array when storing particle locations and properties on the GPU"?????
