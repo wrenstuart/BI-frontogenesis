@@ -1,13 +1,16 @@
 using Oceananigans, JLD2, Makie, Printf
 using Oceananigans.Units
 using CairoMakie
+using FFTW
 
 
+function surface_func(file_label, f, input_labels)
+    
+    filename = "raw_data/" * file_label * "_BI_xy.jld2"
+    file = jldopen(filename)
+    iterations = parse.(Int, keys(file["timeseries/t"]))
+    return [file["timeseries/t/$iter"] for iter in iterations[11:end]], [f([file["timeseries/" * var_lab * "/$iter"] for var_lab in input_labels]) for iter in iterations[11:end]]
 
-function surface_stats(file_label, var_label)
-    f = x -> x[1]
-    input_labels = [var_label]
-    return surface_function_stats(file_label, f, input_labels)
 end
 
 function surface_function_stats(file_label, f, input_labels)
@@ -38,6 +41,12 @@ function surface_function_stats(file_label, f, input_labels)
     return t[11:end], μ[11:end], σ²[11:end], skew[11:end]
 end
 
+function surface_stats(file_label, var_label)
+    f = x -> x[1]
+    input_labels = [var_label]
+    return surface_function_stats(file_label, f, input_labels)
+end
+
 function buoyancy_flux(file_label)
     filename = "raw_data/" * file_label * "_BI_y-avg.jld2"
     file = jldopen(filename)
@@ -66,32 +75,87 @@ function timeseries(label, Ri)
     U = (s/Ri)^0.5 * H * f
     t, 𝒦, ~, ~ = surface_function_stats(label, 𝐮 -> ((𝐮[1] .- U).^2 + 𝐮[2].^2 + 𝐮[3].^2) / 2, ["u", "v", "w"])
     t, K, ~, ~ = surface_function_stats(label, 𝐮 -> (𝐮[1].^2 + 𝐮[2].^2 + 𝐮[3].^2) / 2, ["u", "v", "w"])
+    t, W², ~, ~ = surface_function_stats(label, 𝐮 -> (𝐮[3].^2), ["u", "v", "w"])
     t, ℬ_surf, ~, ~ = surface_function_stats(label, x -> - x[1] .* x[2], ["w", "b"])
     t, ℬ_vol = buoyancy_flux(label)
     ℬ = ℬ_vol
     t, μ_ζ, σ²_ζ, skew_ζ = surface_stats(label, "ζ₃")
     t, μ_δ, σ²_δ, skew_δ = surface_stats(label, "δ")
-    #t, μ_Ri, ~, ~ = surface_function_stats(label, x -> - f^2 .* x[1] ./ (x[2].^2 .+ x[3].^2), ["b_z", "u_z", "v_z"])
     μ_Ri = t .* 0
+    ft = t .* 1e-4
 
     fig = Figure()
     ax = Axis(fig[1, 1], xlabel = L"ft", ylabel=L"\text{Skewness}")
-    l1 = lines!(t .* 1e-4, skew_ζ, label = L"\zeta")
-    l2 = lines!(t .* 1e-4, skew_δ, label = L"\delta")
+    l1 = lines!(ft, skew_ζ, label = L"\zeta")
+    l2 = lines!(ft, skew_δ, label = L"\delta")
     axislegend(position = :rc)
     save("pretty_things/" * label * "_skew.pdf", fig)
+    display(fig)
     fig = Figure()
     ax = Axis(fig[1, 1], xlabel = L"ft", ylabel=L"\text{log-RMS}")
-    l1 = lines!(t .* 1e-4, log.(σ²_ζ.^0.5/f), label = L"\zeta")
-    l2 = lines!(t .* 1e-4, log.(σ²_δ.^0.5/f), label = L"\delta")
+    l1 = lines!(ft, log.(σ²_ζ.^0.5/f), label = L"\zeta")
+    l2 = lines!(ft, log.(σ²_δ.^0.5/f), label = L"\delta")
+    l3 = lines!(ft, log.(W²) .+ 20, label = L"KE_v")
     axislegend(position = :rc)
+    slope = (10.8*(1+Ri))^(-0.5)
+    i₁ = Int(round(length(ft)*0.15))
+    i₂ = Int(round(length(ft)*0.75))
+    lines!(ft[i₁:i₂], ft[i₁:i₂] * slope .- 15, linestyle = :dot)
+    lines!(ft[i₁:i₂], ft[i₁:i₂] * 2*slope .- 30, linestyle = :dot)
     save("pretty_things/" * label * "_var.pdf", fig)
-    #fig, ax, l = lines(t .* 1e-4, μ_Ri)
-    #save("pretty_things/" * label * "_Ri.pdf", fig)
+    display(fig)
     fig = Figure()
     ax = Axis(fig[1, 1], xlabel = L"ft", ylabel=L"\text{Buoyancy flux }\mathcal{B}=-\langle wb\rangle")
-    l = lines!(t .* 1e-4, ℬ)
+    l = lines!(ft, ℬ)
     save("pretty_things/" * label * "_ℬ.pdf", fig)
+    display(fig)
+
+end
+
+function f_timeseries(label, Ri)
+
+    function abs_f_cpts(field, m_max = 4, l_max = 2)
+        fmags = zeros(1+m_max, 1+l_max)
+        ffield = fft(field)/length(field)
+        M, L = size(ffield)
+        for m = 0 : m_max, l = 0 : l_max
+            ms = (m == 0 ? [1] : [m+1, M+1-m])
+            ls = (l == 0 ? [1] : [l+1, L+1-l])
+            fmags[m+1, l+1] = sum((abs.(ffield[ms, ls])).^2)
+        end
+        return fmags
+    end
+
+    f = 1e-4
+    s = 1e4
+    H = 50
+    t, W², ~, ~ = surface_function_stats(label, 𝐮 -> (𝐮[3].^2), ["u", "v", "w"])
+    t, fmags = surface_func(label, x -> - abs_f_cpts(x[1]), ["w"])
+    for i in length(t)
+        for fmag in fmags[i]
+            if fmag < 0
+                @info i, fmag
+            end
+        end
+    end
+    @info typeof(fmags)
+    ft = t .* 1e-4
+
+    fig = Figure()
+    ax = Axis(fig[1, 1], xlabel = L"ft", ylabel=L"\text{log-RMS}")
+    for m = 0:3, l = 0:2
+        if m >= 2
+            lines!(ft, log.(abs.([fmags[i][m+1, l+1] for i = 1:length(fmags)])) .+ 20, label = string(m)*", "*string(l))
+        end
+    end
+    lines!(ft, log.(W²) .+ 20, label = "total", linestyle = :dash, color = :black)
+    axislegend(position = :rc)
+    slope = (10.8*(1+Ri))^(-0.5)
+    i₁ = Int(round(length(ft)*0.05))
+    i₂ = Int(round(length(ft)*0.6))
+    lines!(ft[i₁:i₂], ft[i₁:i₂] * 0.71*2*slope .- 30, linestyle = :dot, color = :black)
+    save("pretty_things/" * label * "_var.pdf", fig)
+    display(fig)
 
 end
 

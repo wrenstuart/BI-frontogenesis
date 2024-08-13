@@ -22,17 +22,18 @@ function physical_quantities_from_inputs(Ri, s)
     # Set relative amplitude for random velocity perturbation
     kick = 0.05 * p.U
 
-    B₀(x, y, z, t) = p.M² * y               # Buoyancy
+    B₀(x, y, z, t) = p.M² * y + p.N² * z    # Buoyancy
     U₀(x, y, z, t) = -p.M²/p.f * (z + Lz)   # Zonal velocity
 
     # Set the initial perturbation conditions, a random velocity perturbation
     uᵢ(x, y, z) = kick * randn()
     vᵢ(x, y, z) = kick * randn() 
     wᵢ(x, y, z) = kick * randn()
-    bᵢ(x, y, z) = p.N² * z
+    bᵢ(x, y, z) = 0
 
-    u_bcs = FieldBoundaryConditions(top = GradientBoundaryCondition(p.M²/p.f),
-                                    bottom = GradientBoundaryCondition(p.M²/p.f))
+    u_bcs = FieldBoundaryConditions(top = GradientBoundaryCondition(0.0),
+                                    bottom = GradientBoundaryCondition(0.0))
+    # This is applied to the perturbation u, not including the background U₀
     BCs = (u = u_bcs,)
 
     return p, (x = Lx, y = Ly, z = Lz), (u = uᵢ, v = vᵢ, w = wᵢ, b = bᵢ), (U = U₀, B = B₀), BCs
@@ -50,7 +51,7 @@ function run_sim(params)
     # Here, p holds the physical parameters
 
     # Set the time-stepping parameters
-    max_Δt = minimum([p.T/10, 0.85 * pi / (p.N²^0.5)])
+    max_Δt = 0.4 * pi / (p.N²^0.5)
     duration = p.T * 50
 
     # Build the grid
@@ -99,7 +100,7 @@ function run_sim(params)
     set!(model, u = ic.u, v = ic.v, w = ic.w, b = ic.b)
     
     # Build the simulation
-    simulation = Simulation(model, Δt = max_Δt/10, stop_time = duration)
+    simulation = Simulation(model, Δt = minimum([max_Δt/10, p.T/100]), stop_time = duration)
 
     # ### The `TimeStepWizard`
     #

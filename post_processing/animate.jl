@@ -36,6 +36,10 @@ function ani_xy(label::String, a::Float64, b::Float64)
     ζ_on_f = lift(iter -> ζ₃_xy[]/f, iter)
     b_xy = lift(iter -> file["timeseries/b/$iter"][:, :, 1], iter)   # Surface buoyancy at this iteration
     t = lift(iter -> file["timeseries/t/$iter"], iter)   # Time elapsed by this iteration
+    str_ft = lift(t) do t
+        ft = @sprintf("%.2f", f*t)
+        return L"ft=%$(ft)"
+    end
 
     δ = lift(iter -> file["timeseries/δ/$iter"][:, :, 1], iter)
     u_x = lift(iter -> file["timeseries/u_x/$iter"][:, :, 1], iter)
@@ -56,12 +60,12 @@ function ani_xy(label::String, a::Float64, b::Float64)
     ζ₃_max = 0
     b_max = maximum(b_ic)
 
-    for i = 11 : length(iterations)
+    for i = Int(round(length(iterations)/10)) : length(iterations)
         iter[] = iterations[i]
         ζ₃_max = maximum([ζ₃_max, maximum(ζ₃_xy[])])
     end
 
-    ζ₃_max = minimum([ζ₃_max, f])
+    ζ₃_max = minimum([ζ₃_max, 20f])
 
     @info "Drawing first frame"
 
@@ -72,10 +76,11 @@ function ani_xy(label::String, a::Float64, b::Float64)
     ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b")
     ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f")
     hm_b = heatmap!(ax_b, xb/1kilometer, yb/1kilometer, b_xy; colorrange = (-0.5*b_max, 1.5*b_max));
-    hm_ζ₃ = heatmap!(ax_ζ, xζ₃/1kilometer, yζ₃/1kilometer, ζ_on_f; colormap = :coolwarm, colorrange = (-ζ₃_max/f, ζ₃_max/f));
+    hm_ζ₃ = heatmap!(ax_ζ, xζ₃/1kilometer, yζ₃/1kilometer, ζ_on_f; colormap = :coolwarm, colorrange = (-ζ₃_max/f, ζ₃_max/f))
     #hm_ζ₃ = heatmap!(ax_ζ, xζ₃/1kilometer, yζ₃/1kilometer, e; colormap = :coolwarm, colorrange = (-5f^2, 5f^2));
     Colorbar(fig[1, 1][1, 2], hm_b)
     Colorbar(fig[1, 2][1, 2], hm_ζ₃)
+    Makie.Label(fig[0, 1:2], str_ft)
 
     ##############################################
     # SEE IF CAN CHANGE COLORS, ADD TIME COUNTER #
@@ -87,13 +92,13 @@ function ani_xy(label::String, a::Float64, b::Float64)
     record(i -> iter[] = i,
            fig,
            "pretty_things/" * label * ".mp4",
-           iterations[maximum([Int64(round(length(iterations) * a )), 1]) : Int64(round(length(iterations) * b))],
+           iterations[maximum([Int64(round(length(iterations) * a )), 1]) : 2 : Int64(round(length(iterations) * b))],
            framerate = 20)
 
 end
 
 function ani_xy(label::String)
-    ani_xy(label::String, 0.5, 1.0)
+    ani_xy(label::String, 0.4, 1.0)
 end
 
 function ani_xz(label)
