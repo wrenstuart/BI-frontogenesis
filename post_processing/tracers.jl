@@ -83,71 +83,6 @@ function grid_nearest(data::FileData, var::String, x::Float64, y::Float64, iter:
 
 end
 
-#=
-
-# Old functions for releasing drifters in post_processing (removed in favour of
-# drifters handled by OCeananigans during simulation)
-
-function tracer_release(label::String, 𝐱₀::Vector{Float64})
-
-    filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
-    file = jldopen(filename_xy_top)
-    grid_x, grid_y, grid_z = nodes(FieldTimeSeries(filename_xy_top, "ζ₃", iterations = 0))
-    data = FileData(file, [x for x in grid_x], [y for y in grid_y], [z for z in grid_z])
-
-    iterations = parse.(Int, keys(file["timeseries/t"]))
-    t = [file["timeseries/t/$iter"] for iter in iterations]
-
-    𝐱 = [[0.0, 0.0] for i = 1: length(iterations)]
-    𝐱[1] = 𝐱₀
-
-    for n = 1 : length(iterations) - 1
-
-        iter = iterations[n]
-        𝐱₁ = 𝐱[n]
-        𝐮₁ = [grid_interpolate(data, "u", 𝐱₁[1], 𝐱₁[2], iter), grid_interpolate(data, "v", 𝐱₁[1], 𝐱₁[2], iter)]
-        𝐱₂ = (𝐱[n] + (t[n+1]-t[n]) * 𝐮₁ + [data.Lx, data.Ly]) .% [data.Lx, data.Ly]
-        𝐮₂ = [grid_interpolate(data, "u", 𝐱₂[1], 𝐱₂[2], iter), grid_interpolate(data, "v", 𝐱₂[1], 𝐱₂[2], iter)]
-        𝐮 = (𝐮₁ + 𝐮₂) / 2
-        𝐱[n+1] = (𝐱[n] + (t[n+1]-t[n]) * 𝐮 + [data.Lx, data.Ly]) .% [data.Lx, data.Ly]
-
-    end
-
-    return 𝐱
-
-end
-
-function tracer_release(data::FileData, 𝐱₀::Vector{Float64})
-
-    iterations = parse.(Int, keys(data.file["timeseries/t"]))
-    t = [data.file["timeseries/t/$iter"] for iter in iterations]
-
-    𝐱 = [[0.0, 0.0] for i = 1: length(iterations)]
-    𝐱[1] = 𝐱₀
-
-    for n = 1 : length(iterations) - 1
-
-        iter = iterations[n]
-        𝐱₁ = 𝐱[n]
-        𝐮₁ = [grid_interpolate(data, "u", 𝐱₁[1], 𝐱₁[2], iter), grid_interpolate(data, "v", 𝐱₁[1], 𝐱₁[2], iter)]
-        𝐱₂ = (𝐱[n] + (t[n+1]-t[n]) * 𝐮₁ + [data.Lx, data.Ly]) .% [data.Lx, data.Ly]
-        𝐮₂ = [grid_interpolate(data, "u", 𝐱₂[1], 𝐱₂[2], iter), grid_interpolate(data, "v", 𝐱₂[1], 𝐱₂[2], iter)]
-        𝐮 = (𝐮₁ + 𝐮₂) / 2
-        𝐱[n+1] = (𝐱[n] + (t[n+1]-t[n]) * 𝐮 + [data.Lx, data.Ly]) .% [data.Lx, data.Ly]
-
-    end
-
-    return 𝐱
-
-end
-
-function tracer_grid(data::FileData, n::Int)
-    # create an equally spaced n×n grid of tracers in the initial conditions
-    return vec([tracer_release(data, [data.Lx*(i-1)/n, data.Ly*(j-1)/n]) for i = 1:n, j = 1:n])
-end
-
-=#
-
 function extract_tracers(label::String)
     
     filename_tracers = "raw_data/" * label * "_particles.jld2"
@@ -228,11 +163,60 @@ function δ_on_f_func(input)
     
 end
 
+function F_hor_δ_func(input)
+    δ, ζ, u_x, v_x = input
+    v_y = δ - u_x
+    u_y = v_x - ζ
+    return - (u_x^2 + 2v_x*u_y + v_y^2)
+end
+function F_cor_and_pres_δ_func(input)
+    ζ, ζ_g = input
+    ζ_ag = ζ - ζ_g
+    return f * ζ_ag
+end
+function F_vert_δ_func(input)
+    u_z, v_z, w_x, w_y = input
+    return - (u_z * w_x + v_z * w_y)
+end
+F_hor_δ_appr_func(input) = -input[1]^2
+F_cor_and_pres_δ_appr_func(input) = F_cor_and_pres_δ_func(input)
+F_vert_δ_appr_func(input) = 0
+
+function F_hor_ζ_func(input)
+    δ, ζ = input
+    return - δ * ζ
+end
+function F_cor_ζ_func(input)
+    δ = input[1]
+    return - f * δ
+end
+function F_vert_ζ_func(input)
+    u_z, v_z, w_x, w_y = input
+    return u_z * w_y - v_z * w_x
+end
+F_hor_ζ_appr_func(input) = F_hor_ζ_func(input)
+F_cor_ζ_appr_func(input) = F_cor_ζ_func(input)
+F_vert_ζ_appr_func(input) = 0
+
 plotting_vars = (Ri = (Ri_func, ["b_z", "u_z", "v_z"]),
                  KE = (KE_func, ["u", "v", "w"]),
                  ∇ₕb = (∇ₕb_func, ["b_x", "b_y"]),
-                 ζ_on_f = (ζ_on_f_func, ["ζ₃"]),
-                 δ_on_f = (δ_on_f_func, ["δ"]))
+                 ζ_on_f = (ζ_on_f_func, ["ζ"]),
+                 δ_on_f = (δ_on_f_func, ["δ"]),
+
+                 F_hor_δ = (F_hor_δ_func, ["δ", "ζ", "u_x", "v_x"]),
+                 F_hor_δ_appr = (F_hor_δ_appr_func, ["δ"]),
+                 F_cor_and_pres_δ = (F_cor_and_pres_δ_func, ["ζ", "ζ_g"]),
+                 F_cor_and_pres_δ_appr = (F_cor_and_pres_δ_appr_func, ["ζ", "ζ_g"]),
+                 F_vert_δ = (F_vert_δ_func, ["u_z", "v_z", "w_x", "w_y"]),
+                 F_vert_δ_appr = (F_vert_δ_appr_fun, ["δ"]),
+
+                 F_hor_ζ = (F_hor_ζ_func, ["δ", "ζ"]),
+                 F_hor_ζ_appr = (F_hor_ζ_appr_func, ["δ", "ζ"]),
+                 F_cor_ζ = (F_cor_ζ_func, ["δ"]),
+                 F_cor_ζ_appr = (F_cor_ζ_appr_func, ["δ"]),
+                 F_vert_ζ = (F_vert_ζ_func, ["u_z", "v_z", "w_x", "w_y"]),
+                 F_vert_appr_ζ = (F_vert_ζ_appr_func, ["ζ"]))
 
 function tracer_track(label::String, var_to_track::Union{Tuple{Function, Vector{String}}, String})
 

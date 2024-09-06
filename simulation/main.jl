@@ -4,4 +4,4 @@
 include("sim.jl")
 include(ARGS[1] * "_input.jl")
 
-run_sim(sim_params())
+run_sim(sim_params(), ARGS[1])

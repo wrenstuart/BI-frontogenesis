@@ -6,6 +6,7 @@ using Oceananigans.TurbulenceClosures
 using CUDA
 
 include("../QOL.jl")
+include("../instabilities/modes.jl")
 
 function physical_quantities_from_inputs(Ri, s)
 
@@ -26,10 +27,7 @@ function physical_quantities_from_inputs(Ri, s)
     U₀(x, y, z, t) = -p.M²/p.f * (z + Lz)   # Zonal velocity
 
     # Set the initial perturbation conditions, a random velocity perturbation
-    uᵢ(x, y, z) = kick * randn()
-    vᵢ(x, y, z) = kick * randn() 
-    wᵢ(x, y, z) = kick * randn()
-    bᵢ(x, y, z) = 0
+    uᵢ, vᵢ, wᵢ, bᵢ = generate_ic(Ri, Lx, p.U)
 
     u_bcs = FieldBoundaryConditions(top = GradientBoundaryCondition(0.0),
                                     bottom = GradientBoundaryCondition(0.0))
@@ -40,19 +38,20 @@ function physical_quantities_from_inputs(Ri, s)
 
 end
 
-function run_sim(params)
+function run_sim(params, label)
 
     resolution = params.res
-    label = params.label
 
     @info label
 
     p, domain, ic, background, BCs = physical_quantities_from_inputs(params.Ri, params.s)
+    
     # Here, p holds the physical parameters
 
     # Set the time-stepping parameters
     max_Δt = 0.4 * pi / (p.N²^0.5)
-    duration = p.T * 50
+    T = 1 / real(least_stable_mode(params.Ri, 4π/domain.x, 0, rate_only = true))
+    duration = T * 50
 
     # Build the grid
     if params.GPU
@@ -131,22 +130,27 @@ function run_sim(params)
 
     # ### Output
 
+    U_back = Field(model.background_fields.velocities.u)
     u = Field(model.velocities.u + model.background_fields.velocities.u)    # Unpack velocity `Field`s
     v = Field(model.velocities.v)
     w = Field(model.velocities.w)
     b = Field(model.tracers.b + model.background_fields.tracers.b)          # Extract the buoyancy and add the background field
-    b_pert = Field(model.tracers.b)# - BackgroundField((x, y, z, t) -> p.N² * z))
+    b_pert = Field(model.tracers.b)
+    p̃ = Field(model.nonhydrostatic_pressure)    # (ignoring the background pressure field, M²y(z+H) + N²z²/2)
 
     # Now calculate the derivatives of 𝐮
     # Only 8 are needed, since ∇⋅𝐮 = 0
-    ζ₁ = Field(∂y(w) - ∂z(v))
-    ζ₂ = Field(∂z(u) - ∂x(w))
-    ζ₃ = Field(∂x(v) - ∂y(u))
+    ζ = Field(∂x(v) - ∂y(u))
     δ = Field(∂x(u) + ∂y(v))    # The horizontal divergence
     u_x = Field(∂x(u))
     v_x = Field(∂x(v))
     u_z = Field(∂z(u))
     v_z = Field(∂z(v))
+    w_x = Field(∂x(w))
+    w_y = Field(∂y(w))
+    u_g = Field(∂y(p̃)/f + U_back)
+    v_g = Field(-∂x(p̃)/f)
+    ζ_g = Field(∂x(v_g) - ∂y(u_g))
 
     # Also calculate derivatives of b
     b_x = Field(∂x(b))
@@ -166,58 +170,58 @@ function run_sim(params)
     simulation.output_writers[:particles] =
         JLD2OutputWriter(model, (particles = model.particles,),
                                 filename = filename * ".jld2",
-                                schedule = TimeInterval(p.T/40),
+                                schedule = TimeInterval(p.T/100),
                                 overwrite_existing = true)
 
     # Output the slice y = 0
     filename = "raw_data/" * label * "_BI_xz"
     simulation.output_writers[:xz_slices] =
-        JLD2OutputWriter(model, (; u, v, w, b, ζ₁, ζ₂, ζ₃, δ, u_x, v_x, u_z, v_z, b_x, b_y, b_z),
+        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, 1, :),
-                                schedule = TimeInterval(p.T/40),
+                                schedule = TimeInterval(p.T/100),
                                 overwrite_existing = true)
 
     # Output the slice z = 0
     filename = "raw_data/" * label * "_BI_xy"
     simulation.output_writers[:xy_slices] =
-        JLD2OutputWriter(model, (; u, v, w, b, ζ₁, ζ₂, ζ₃, δ, u_x, v_x, u_z, v_z, b_x, b_y, b_z),
+        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, :, resolution[3]),
-                                schedule = TimeInterval(p.T/40),
+                                schedule = TimeInterval(p.T/100),
                                 overwrite_existing = true)
 
     # Output the slice x = 0
     filename = "raw_data/" * label * "_BI_yz"
     simulation.output_writers[:yz_slices] =
-        JLD2OutputWriter(model, (; u, v, w, b, ζ₁, ζ₂, ζ₃, δ, u_x, v_x, u_z, v_z, b_x, b_y, b_z),
+        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g),
                                 filename = filename * ".jld2",
                                 indices = (1, :, :),
-                                schedule = TimeInterval(p.T/40),
+                                schedule = TimeInterval(p.T/100),
                                 overwrite_existing = true)
 
     # Output a horizontal slice in the middle (verticall speaking)
     filename = "raw_data/" * label * "_BI_xy_mid"
     simulation.output_writers[:xy_slices_mid] =
-        JLD2OutputWriter(model, (; u, v, w, b, ζ₁, ζ₂, ζ₃, δ, u_x, v_x, u_z, v_z, b_x, b_y, b_z),
+        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, :, Int64(round((resolution[3]+1) / 2))),
-                                schedule = TimeInterval(p.T/40),
+                                schedule = TimeInterval(p.T/100),
                                 overwrite_existing = true)
 
     filename = "raw_data/" * label * "_BI_y-avg"
     simulation.output_writers[:xy_slices_mid] =
         JLD2OutputWriter(model, (; u̅, v̅, w̅, b̅, avg_ℬ),
                                 filename = filename * ".jld2",
-                                schedule = TimeInterval(p.T/40),
+                                schedule = TimeInterval(p.T/100),
                                 overwrite_existing = true)
 
-    filename = "raw_data/" * label * "_full"
+    #=filename = "raw_data/" * label * "_full"
     simulation.output_writers[:full] =
         JLD2OutputWriter(model, (; u, v, w, b),
                                 filename = filename * ".jld2",
                                 schedule = TimeInterval(duration / 4),
-                                overwrite_existing = true)
+                                overwrite_existing = true)=#
 
     nothing # hide
 

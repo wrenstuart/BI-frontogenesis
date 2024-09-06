@@ -89,7 +89,7 @@ function ani_xy(label::String, a::Float64, b::Float64)
     display(fig)
     
     @info "Making an animation from saved data..."
-    record(i -> iter[] = i,
+    CairoMakie.record(i -> iter[] = i,
            fig,
            "pretty_things/" * label * ".mp4",
            iterations[maximum([Int64(round(length(iterations) * a )), 1]) : 2 : Int64(round(length(iterations) * b))],
@@ -98,7 +98,7 @@ function ani_xy(label::String, a::Float64, b::Float64)
 end
 
 function ani_xy(label::String)
-    ani_xy(label::String, 0.4, 1.0)
+    ani_xy(label::String, 0.0, 1.0)
 end
 
 function ani_xz(label)

@@ -78,7 +78,6 @@ function evals_with_constraints(A::Matrix, B::Matrix, C::Matrix, removed::Vector
     Bₖₖ = B[kept, kept]
     Bₖᵣ = B[kept, removed]
     Cᵣᵣ = C[:, removed]
-    [@info Cᵣᵣ[i, :] for i in 1:size(Cᵣᵣ)[1]]
     Cᵣₖ = C[:, kept]
 
     G = - (Cᵣᵣ^(-1)) * Cᵣₖ

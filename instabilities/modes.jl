@@ -8,7 +8,7 @@ function amplitude(u, v, w, b, f, aspect)
 
 end
 
-function least_stable_mode(Ri, k, l; H = 50, f = 1e-4, νᵥ = 1e-3, νₕ = 1e+1, N² = 1e-4, N = 100)
+function least_stable_mode(Ri, k, l; H = 50, f = 1e-4, νᵥ = 1e-3, νₕ = 1e+1, N² = 1e-4, N = 100, rate_only = false)
     
     M² = (N²*f^2/Ri) ^ 0.5
     Δz = H/(N-1)
@@ -73,6 +73,11 @@ function least_stable_mode(Ri, k, l; H = 50, f = 1e-4, νᵥ = 1e-3, νₕ = 1e+
     𝐯 = 𝐯[:, 1:length(σ)]
 
     index = length(σ)
+
+    if rate_only
+        return σ[index]
+    end
+
     u = 𝐯[0N+1:1N, index]
     v = 𝐯[1N+1:2N, index]
     w = 𝐯[2N+1:3N, index]
@@ -84,3 +89,87 @@ function least_stable_mode(Ri, k, l; H = 50, f = 1e-4, νᵥ = 1e-3, νₕ = 1e+
     return u/A, v/A, w/A, b/A
 
 end
+
+function generate_ic(Ri, L, U; N = 100, H = 50)
+    
+    u_modes = []
+    v_modes = []
+    w_modes = []
+    b_modes = []
+    for i = 0:10, j = 0:10
+        if !(i == 0 && j == 0)
+            k = i * 2π/L
+            l = j * 2π/L
+            û, v̂, ŵ, b̂ = least_stable_mode(Ri, k, l, N = N)
+            A = U * ((i==2 && j==0) ? 0.01 : 0.0002 * rand() * exp(2π*im*rand()))
+            push!(u_modes, ((k, l), A * û))
+            push!(v_modes, ((k, l), A * v̂))
+            push!(b_modes, ((k, l), A * ŵ))
+            push!(w_modes, ((k, l), A * b̂))
+        end
+    end
+
+    function interpolate_mode(f, x)
+        # Assuming x ∈ [0, 1] with f[1] = f(0) and f[end] = f(1)
+        i = 1 + (length(f)-1) * x
+        if isinteger(i)
+            return f[Int(i)]
+        else
+            i₀ = Int(floor(i))
+            i₁ = Int(ceil(i))
+            return (i₁-i) * f[i₀] + (i-i₀) * f[i₁]
+        end
+    end
+
+    function uᵢ(x, y, z)
+        val = 0
+        for mode in u_modes
+            k = mode[1][1]
+            l = mode[1][2]
+            û = mode[2]
+            val += real(exp(im*(k*x+l*y)) * interpolate_mode(û, z/H+1))
+        end
+        return val + 0.001 * U * randn()
+    end
+    function vᵢ(x, y, z)
+        val = 0
+        for mode in v_modes
+            k = mode[1][1]
+            l = mode[1][2]
+            v̂ = mode[2]
+            val += real(exp(im*(k*x+l*y)) * interpolate_mode(v̂, z/H+1))
+        end
+        return val + 0.001 * U * randn()
+    end
+    function wᵢ(x, y, z)
+        val = 0
+        for mode in w_modes
+            k = mode[1][1]
+            l = mode[1][2]
+            ŵ = mode[2]
+            val += real(exp(im*(k*x+l*y)) * interpolate_mode(ŵ, z/H+1))
+        end
+        return val + 0.001 * U * randn()
+    end
+    val = 0
+    function bᵢ(x, y, z)
+        for mode in b_modes
+            k = mode[1][1]
+            l = mode[1][2]
+            b̂ = mode[2]
+            val += real(exp(im*(k*x+l*y)) * interpolate_mode(b̂, z/H+1))
+        end
+        return val
+    end
+
+    return uᵢ, vᵢ, wᵢ, bᵢ
+
+end
+
+#=z = -50:0
+u, v, w, b = generate_ic(1, 28000, 0.5, N = 50)
+fig = Figure()
+ax = Axis(fig[1, 1])
+lines!(ax, u.(0, 0, z), z)
+lines!(ax, v.(0, 0, z), z)
+display(fig)=#
