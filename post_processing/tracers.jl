@@ -104,8 +104,7 @@ function lagr_track(data::FileData, var_to_track::Tuple{Function, Vector{String}
     iterations = parse.(Int, keys(data.file["timeseries/t"]))
     t = [data.file["timeseries/t/$iter"] for iter in iterations]
     output = zeros(Float64, length(iterations))
-    for i = 1 : length(iterations)
-        iter = iterations[i]
+    for (i, iter) in enumerate(iterations)
         t[i] = data.file["timeseries/t/$iter"]
         x, y = drifter[i]
         input = [grid_nearest(data, var, x, y, iter) for var in input_labels]
@@ -127,40 +126,29 @@ end
 # Define some plottable quantities
 
 function Ri_func(input)
-
     b_z, u_z, v_z = input
     return b_z / (u_z^2 + v_z^2)
-
 end
 
 function KE_func(input)
-
     u, v, w = input
     return (u^2 + v^2 + w^2) / 2
-
 end
 
 function ∇ₕb_func(input)
-
     b_x, b_y = input
     return (b_x^2 + b_y^2) ^ 0.5
-
 end
 
 function ζ_on_f_func(input)
-
     f = 1e-4
     ζ = input[1]
     return ζ / f
-    
 end
-
 function δ_on_f_func(input)
-
     f = 1e-4
     δ = input[1]
     return δ / f
-    
 end
 
 function F_hor_δ_func(input)
@@ -201,7 +189,7 @@ F_vert_ζ_appr_func(input) = 0
 plotting_vars = (Ri = (Ri_func, ["b_z", "u_z", "v_z"]),
                  KE = (KE_func, ["u", "v", "w"]),
                  ∇ₕb = (∇ₕb_func, ["b_x", "b_y"]),
-                 ζ_on_f = (ζ_on_f_func, ["ζ"]),
+                 ζ_on_f = (ζ_on_f_func, ["ζ₃"]),
                  δ_on_f = (δ_on_f_func, ["δ"]),
 
                  F_hor_δ = (F_hor_δ_func, ["δ", "ζ", "u_x", "v_x"]),
@@ -209,7 +197,7 @@ plotting_vars = (Ri = (Ri_func, ["b_z", "u_z", "v_z"]),
                  F_cor_and_pres_δ = (F_cor_and_pres_δ_func, ["ζ", "ζ_g"]),
                  F_cor_and_pres_δ_appr = (F_cor_and_pres_δ_appr_func, ["ζ", "ζ_g"]),
                  F_vert_δ = (F_vert_δ_func, ["u_z", "v_z", "w_x", "w_y"]),
-                 F_vert_δ_appr = (F_vert_δ_appr_fun, ["δ"]),
+                 F_vert_δ_appr = (F_vert_δ_appr_func, ["δ"]),
 
                  F_hor_ζ = (F_hor_ζ_func, ["δ", "ζ"]),
                  F_hor_ζ_appr = (F_hor_ζ_appr_func, ["δ", "ζ"]),
@@ -243,31 +231,5 @@ function tracer_track(label::String, var_to_track::Union{Tuple{Function, Vector{
     end
     display(fig)
     save("pretty_things/tracer-delta_" * label * ".pdf", fig)
-    
-end
-
-function ani_tracers(label::String)
-    
-    data = topdata(label)
-    iterations = parse.(Int, keys(data.file["timeseries/t"]))
-    tracers = extract_tracers(label)
-    f = 1e-4
-
-    frame = Observable(1)
-
-    tracers_now_x = lift(i -> [tracer[i][1]/1e3 for tracer in tracers], frame)
-    tracers_now_y = lift(i -> [tracer[i][2]/1e3 for tracer in tracers], frame)
-
-    ζ_on_f = lift(frame) do i
-        iter = iterations[i]
-        data.file["timeseries/ζ₃/$iter"][:, :, 1]/f
-    end
-
-    fig = Figure()
-    ax = Axis(fig[1, 1], aspect = 1)
-    heatmap!(ax, data.x/1e3, data.y/1e3, ζ_on_f, colormap = :coolwarm, colorrange = (-20, 20));
-    scatter!(ax, tracers_now_x, tracers_now_y, marker = '.', markersize = 30, color = :black)
-
-    record(i -> frame[] = i, fig, "pretty_things/tracer_" * label * ".mp4", 1 : length(iterations), framerate = 20)
     
 end

@@ -8,7 +8,7 @@ using Statistics
 using OffsetArrays
 using FFTW
 
-
+include("tracers.jl")
 
 function ani_xy(label::String, a::Float64, b::Float64)
 
@@ -20,7 +20,7 @@ function ani_xy(label::String, a::Float64, b::Float64)
 
     # Read in the first iteration. We do this to load the grid
     b_ic = FieldTimeSeries(filename_xy_top, "b", iterations = 0)
-    ζ₃_ic = FieldTimeSeries(filename_xy_top, "ζ₃", iterations = 0)
+    ζ₃_ic = FieldTimeSeries(filename_xy_top, "ζ", iterations = 0)
 
     # Load in co-ordinate arrays
     # We do this separately for each variable since Oceananigans uses a staggered grid
@@ -32,7 +32,7 @@ function ani_xy(label::String, a::Float64, b::Float64)
 
     # Set up observables for plotting that will update as the iteration number is updated
     iter = Observable(0)
-    ζ₃_xy = lift(iter -> file["timeseries/ζ₃/$iter"][:, :, 1], iter) # Surface vertical vorticity at this iteration
+    ζ₃_xy = lift(iter -> file["timeseries/ζ/$iter"][:, :, 1], iter) # Surface vertical vorticity at this iteration
     ζ_on_f = lift(iter -> ζ₃_xy[]/f, iter)
     b_xy = lift(iter -> file["timeseries/b/$iter"][:, :, 1], iter)   # Surface buoyancy at this iteration
     t = lift(iter -> file["timeseries/t/$iter"], iter)   # Time elapsed by this iteration
@@ -383,6 +383,72 @@ function front_detection(label, ∇b_scale = 5e-6, L_scale = 8000)
            frames,
            framerate = 20)
     
+end
+
+function ani_tracers(label::String)
+    
+    data = topdata(label)
+    iterations = parse.(Int, keys(data.file["timeseries/t"]))
+    tracers = extract_tracers(label)
+    f = 1e-4
+
+    frame = Observable(1)
+
+    tracers_now_x = lift(i -> [tracer[i][1]/1e3 for tracer in tracers], frame)
+    tracers_now_y = lift(i -> [tracer[i][2]/1e3 for tracer in tracers], frame)
+
+    ζ_on_f = lift(frame) do i
+        iter = iterations[i]
+        data.file["timeseries/ζ₃/$iter"][:, :, 1]/f
+    end
+
+    fig = Figure()
+    ax = Axis(fig[1, 1], aspect = 1)
+    heatmap!(ax, data.x/1e3, data.y/1e3, ζ_on_f, colormap = :coolwarm, colorrange = (-20, 20));
+    scatter!(ax, tracers_now_x, tracers_now_y, marker = '.', markersize = 30, color = :black)
+
+    record(i -> frame[] = i, fig, "pretty_things/tracer_" * label * ".mp4", 1 : length(iterations), framerate = 20)
+    
+end
+
+function ζ_δ_lagr(label)
+    
+    data = topdata(label)
+    drifters = extract_tracers(label)
+    drifters = [drifter for drifter in drifters[1:4:end]]
+    ζs_t = zeros((length(drifters), length(drifters[1])))
+    @info size(ζs_t)
+    δs_t = zeros((length(drifters), length(drifters[1])))
+    # Each of the above is indexed by drifter number, then iteration number
+
+    for (i, drifter) in enumerate(drifters)
+        @info i
+        ~, ζ_t = @time lagr_track(data, plotting_vars.ζ_on_f, drifter)
+        ~, δ_t = @time lagr_track(data, plotting_vars.δ_on_f, drifter)
+        ζs_t[i, :] = ζ_t
+        δs_t[i, :] = δ_t
+    end
+
+    fig = Figure()
+    ax = Axis(fig[1, 1], aspect = 1, limits = ((-20, 20), (-20, 20)))
+    frame = Observable(1)
+    ζs = lift(i -> ζs_t[:, i], frame)
+    δs = lift(i -> δs_t[:, i], frame)
+    scatter!(ax, ζs, δs, marker = '.', markersize = 30, color = :black)
+
+    record(i -> frame[] = i, fig, "pretty_things/ζ-δ-drifter_" * label * ".mp4", 1 : length(drifters[1]), framerate = 20)
+
+end
+
+function N²(label)
+    
+    filename_y_mean = "raw_data/" * label * "_BI_y-avg.jld2"
+    file = jldopen(filename_y_mean)
+    iterations = parse.(Int, keys(file["timeseries/t"]))
+    t = [file["timeseries/t/$iter"] for iter in iterations]
+    avg_N² = [mean(file["timeseries/b̅/$iter"][:, 1, 1] - file["timeseries/b̅/$iter"][:, 1, 64])/50 for iter in iterations]
+    lines(t, avg_N²)
+
 end
 
 #####################################################################

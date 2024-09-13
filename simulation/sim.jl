@@ -50,8 +50,7 @@ function run_sim(params, label)
 
     # Set the time-stepping parameters
     max_Δt = 0.4 * pi / (p.N²^0.5)
-    T = 1 / real(least_stable_mode(params.Ri, 4π/domain.x, 0, rate_only = true))
-    duration = T * 50
+    duration = 20 / real(least_stable_mode(params.Ri, 4π/domain.x, 0, rate_only = true))
 
     # Build the grid
     if params.GPU
@@ -130,13 +129,12 @@ function run_sim(params, label)
 
     # ### Output
 
-    U_back = Field(model.background_fields.velocities.u)
     u = Field(model.velocities.u + model.background_fields.velocities.u)    # Unpack velocity `Field`s
     v = Field(model.velocities.v)
     w = Field(model.velocities.w)
     b = Field(model.tracers.b + model.background_fields.tracers.b)          # Extract the buoyancy and add the background field
     b_pert = Field(model.tracers.b)
-    p̃ = Field(model.nonhydrostatic_pressure)    # (ignoring the background pressure field, M²y(z+H) + N²z²/2)
+    p̃ = Field(model.pressures.pNHS)    # (should i do + .pHY′?) # (ignoring the background pressure field, M²y(z+H) + N²z²/2)
 
     # Now calculate the derivatives of 𝐮
     # Only 8 are needed, since ∇⋅𝐮 = 0
@@ -148,8 +146,8 @@ function run_sim(params, label)
     v_z = Field(∂z(v))
     w_x = Field(∂x(w))
     w_y = Field(∂y(w))
-    u_g = Field(∂y(p̃)/f + U_back)
-    v_g = Field(-∂x(p̃)/f)
+    u_g = Field(∂y(p̃)/p.f + model.background_fields.velocities.u)
+    v_g = Field(-∂x(p̃)/p.f)
     ζ_g = Field(∂x(v_g) - ∂y(u_g))
 
     # Also calculate derivatives of b
@@ -170,7 +168,7 @@ function run_sim(params, label)
     simulation.output_writers[:particles] =
         JLD2OutputWriter(model, (particles = model.particles,),
                                 filename = filename * ".jld2",
-                                schedule = TimeInterval(p.T/100),
+                                schedule = TimeInterval(p.T/20),
                                 overwrite_existing = true)
 
     # Output the slice y = 0
@@ -179,7 +177,7 @@ function run_sim(params, label)
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, 1, :),
-                                schedule = TimeInterval(p.T/100),
+                                schedule = TimeInterval(p.T/20),
                                 overwrite_existing = true)
 
     # Output the slice z = 0
@@ -188,7 +186,7 @@ function run_sim(params, label)
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, :, resolution[3]),
-                                schedule = TimeInterval(p.T/100),
+                                schedule = TimeInterval(p.T/20),
                                 overwrite_existing = true)
 
     # Output the slice x = 0
@@ -197,7 +195,7 @@ function run_sim(params, label)
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g),
                                 filename = filename * ".jld2",
                                 indices = (1, :, :),
-                                schedule = TimeInterval(p.T/100),
+                                schedule = TimeInterval(p.T/20),
                                 overwrite_existing = true)
 
     # Output a horizontal slice in the middle (verticall speaking)
@@ -206,14 +204,14 @@ function run_sim(params, label)
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, :, Int64(round((resolution[3]+1) / 2))),
-                                schedule = TimeInterval(p.T/100),
+                                schedule = TimeInterval(p.T/20),
                                 overwrite_existing = true)
 
     filename = "raw_data/" * label * "_BI_y-avg"
     simulation.output_writers[:xy_slices_mid] =
         JLD2OutputWriter(model, (; u̅, v̅, w̅, b̅, avg_ℬ),
                                 filename = filename * ".jld2",
-                                schedule = TimeInterval(p.T/100),
+                                schedule = TimeInterval(p.T/20),
                                 overwrite_existing = true)
 
     #=filename = "raw_data/" * label * "_full"
