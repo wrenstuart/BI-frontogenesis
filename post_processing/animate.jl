@@ -10,7 +10,7 @@ using FFTW
 
 include("tracers.jl")
 
-function ani_xy(label::String, a::Float64, b::Float64)
+function ani_xy(label::String, a::Float64, b::Float64)  # Animate vorticity and buoyancy at the surface
 
     # Set the two dimensional parameters
     H = 50    # Depth of mixed layer
@@ -97,7 +97,7 @@ function ani_xy(label::String, a::Float64, b::Float64)
 
 end
 
-function ani_xy(label::String)
+function ani_xy(label::String)                          # Animate vorticity and buoyancy at the surface
     ani_xy(label::String, 0.0, 1.0)
 end
 
@@ -385,7 +385,7 @@ function front_detection(label, ∇b_scale = 5e-6, L_scale = 8000)
     
 end
 
-function ani_tracers(label::String)
+function ani_tracers(label::String)     # Animate drifters at the surface over a ζ video
     
     data = topdata(label)
     iterations = parse.(Int, keys(data.file["timeseries/t"]))
@@ -437,17 +437,6 @@ function ζ_δ_lagr(label)
     scatter!(ax, ζs, δs, marker = '.', markersize = 30, color = :black)
 
     record(i -> frame[] = i, fig, "pretty_things/ζ-δ-drifter_" * label * ".mp4", 1 : length(drifters[1]), framerate = 20)
-
-end
-
-function N²(label)
-    
-    filename_y_mean = "raw_data/" * label * "_BI_y-avg.jld2"
-    file = jldopen(filename_y_mean)
-    iterations = parse.(Int, keys(file["timeseries/t"]))
-    t = [file["timeseries/t/$iter"] for iter in iterations]
-    avg_N² = [mean(file["timeseries/b̅/$iter"][:, 1, 1] - file["timeseries/b̅/$iter"][:, 1, 64])/50 for iter in iterations]
-    lines(t, avg_N²)
 
 end
 

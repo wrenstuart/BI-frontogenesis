@@ -11,7 +11,7 @@ using Oceananigans
 using JLD2
 using Printf
 
-struct FileData
+struct FileData     # Useful struct for storing general data associated with a file
     file::JLD2.JLDFile{JLD2.MmapIO}
     x::Vector{Float64}
     y::Vector{Float64}
@@ -35,7 +35,7 @@ function FileData(file::JLD2.JLDFile{JLD2.MmapIO}, x::Vector{Float64}, y::Vector
     FileData(file, x, y, z, Lx, Ly, Lz, Nx, Ny, Nz, Lx/Nx, Ly/Ny, Lz/Nz)
 end
 
-function topdata(label::String)
+function topdata(label::String) # Get FileData type info from "_xy_top" of file
     filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
     file = jldopen(filename_xy_top)
     grid_x, grid_y, grid_z = nodes(FieldTimeSeries(filename_xy_top, "ζ", iterations = 0))
@@ -43,7 +43,7 @@ function topdata(label::String)
     return data
 end
 
-function grid_interpolate(data::FileData, var::String, x::Float64, y::Float64, iter::Int)
+function grid_interpolate(data::FileData, var::String, x::Float64, y::Float64, iter::Int)   # Interpolate var to surface position (x, y) between gridpoints
 
     i₋ = Int(floor(x/data.Lx * data.Nx)) + 1
     i₊ = i₋ % data.Nx + 1
@@ -62,7 +62,7 @@ function grid_interpolate(data::FileData, var::String, x::Float64, y::Float64, i
 
 end
 
-function grid_nearest(data::FileData, var::String, x::Float64, y::Float64, iter::Int)
+function grid_nearest(data::FileData, var::String, x::Float64, y::Float64, iter::Int)       # Evaluate var at nearest gridpoint rather than interpolating
 
     i₋ = Int(floor(x/data.Lx * data.Nx)) + 1
     i₊ = i₋ % data.Nx + 1
@@ -83,7 +83,7 @@ function grid_nearest(data::FileData, var::String, x::Float64, y::Float64, iter:
 
 end
 
-function extract_tracers(label::String)
+function extract_tracers(label::String) # Extracts tracer (drifter) data from file with label label. Drifters indexed by number then time (iterations) then x and y co-ordinates separately
     
     filename_tracers = "raw_data/" * label * "_particles.jld2"
     file = jldopen(filename_tracers)
@@ -95,7 +95,7 @@ function extract_tracers(label::String)
 
 end
 
-function lagr_track(data::FileData, var_to_track::Tuple{Function, Vector{String}}, drifter::Vector{Vector{Float64}})
+function lagr_track(data::FileData, var_to_track::Tuple{Function, Vector{String}}, drifter::Vector{Vector{Float64}})    # Tracks a variable along a drifter's path, returns time and drifter as vectors
     
     # Tracks the value of the function var_to_track[1] on variables with labels given by var_to_track[2]
     # along the trajectory of drifter
@@ -115,7 +115,7 @@ function lagr_track(data::FileData, var_to_track::Tuple{Function, Vector{String}
 
 end
 
-function lagr_track(data::FileData, var_to_track::String, drifter::Vector{Vector{Float64}})
+function lagr_track(data::FileData, var_to_track::String, drifter::Vector{Vector{Float64}}) # Tracks a variable along a drifter's path, returns time and drifter as vectors
 
     # Track the value of the variable with label var_to_track
 
@@ -206,7 +206,7 @@ plotting_vars = (Ri = (Ri_func, ["b_z", "u_z", "v_z"]),
                  F_vert_ζ = (F_vert_ζ_func, ["u_z", "v_z", "w_x", "w_y"]),
                  F_vert_appr_ζ = (F_vert_ζ_appr_func, ["ζ"]))
 
-function tracer_track(label::String, var_to_track::Union{Tuple{Function, Vector{String}}, String})
+function tracer_track(label::String, var_to_track::Union{Tuple{Function, Vector{String}}, String})  # Tracks var_to_track for all traccers (or first 20 as currently edited to be) and plots the data vs. time
 
     # var_to_track can either be a tuple [f, var_labels], wherein f is evaluated on variables with
     # labels given by var_labels, or it can be a string, in which case just the variable with that
@@ -237,7 +237,9 @@ function tracer_track(label::String, var_to_track::Union{Tuple{Function, Vector{
     
 end
 
-function interesting_bits(data::FileData, drifter)
+function ζ_δ_trajectories(data::FileData, drifter)  # Finds segements of a drifter's trajectory through ζ-δ phase space that are high in ∇𝐮 and
+    # return an array of each trajectory, where each trajectory is a named tuple with keys ζ, δ and t_rel
+    # t_rel is a normalised time relative to the time of maximal ζ
     
     f = 1e-4
     t, ζ = lagr_track(data, "ζ", drifter)
@@ -305,7 +307,7 @@ function interesting_bits(data::FileData, drifter)
 
 end
 
-function all_traj_ζ_δ_plot(label::String)
+function all_traj_ζ_δ_plot(label::String)           # Take the data from ζ_δ_trajectories for all drifters and plot them together
     
     f = 1e-4
 
@@ -313,7 +315,7 @@ function all_traj_ζ_δ_plot(label::String)
     drifters = extract_tracers(label)
     trajectories = []
     for drifter in drifters
-        [push!(trajectories, traj) for traj in interesting_bits(data, drifter)]
+        [push!(trajectories, traj) for traj in ζ_δ_trajectories(data, drifter)]
     end
 
     fig = Figure()

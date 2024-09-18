@@ -237,3 +237,14 @@ function snapshots(label, t)
     save("pretty_things/" * label * "_top-pic.png", fig)
 
 end
+
+function N²(label)  # Plot average N² vs. time
+    
+    filename_y_mean = "raw_data/" * label * "_BI_y-avg.jld2"
+    file = jldopen(filename_y_mean)
+    iterations = parse.(Int, keys(file["timeseries/t"]))
+    t = [file["timeseries/t/$iter"] for iter in iterations]
+    avg_N² = [mean(file["timeseries/b̅/$iter"][:, 1, 1] - file["timeseries/b̅/$iter"][:, 1, 64])/50 for iter in iterations]
+    lines(t, avg_N²)
+
+end
