@@ -38,7 +38,7 @@ end
 function topdata(label::String)
     filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
     file = jldopen(filename_xy_top)
-    grid_x, grid_y, grid_z = nodes(FieldTimeSeries(filename_xy_top, "ζ₃", iterations = 0))
+    grid_x, grid_y, grid_z = nodes(FieldTimeSeries(filename_xy_top, "ζ", iterations = 0))
     data = FileData(file, [x for x in grid_x], [y for y in grid_y], [z for z in grid_z])
     return data
 end
@@ -189,7 +189,7 @@ F_vert_ζ_appr_func(input) = 0
 plotting_vars = (Ri = (Ri_func, ["b_z", "u_z", "v_z"]),
                  KE = (KE_func, ["u", "v", "w"]),
                  ∇ₕb = (∇ₕb_func, ["b_x", "b_y"]),
-                 ζ_on_f = (ζ_on_f_func, ["ζ₃"]),
+                 ζ_on_f = (ζ_on_f_func, ["ζ"]),
                  δ_on_f = (δ_on_f_func, ["δ"]),
 
                  F_hor_δ = (F_hor_δ_func, ["δ", "ζ", "u_x", "v_x"]),
@@ -212,12 +212,15 @@ function tracer_track(label::String, var_to_track::Union{Tuple{Function, Vector{
     # labels given by var_labels, or it can be a string, in which case just the variable with that
     # label is evaluated
 
+    f = 1e-4
+
     data = topdata(label)
-    drifters = extract_tracers(label)[1:5]
+    drifters = extract_tracers(label)[1:20]
     fig = Figure()
     ax = Axis(fig[1, 1])#, limits = (nothing, (-1, 1)))
     for drifter in drifters
         t, var = lagr_track(data, var_to_track, drifter)
+        interesting_bits(data, drifter)
         #=i₁ = Int(round(length(t)/3))
         i₂ = Int(round(2length(t)/3))=#
         i₁ = 5
@@ -226,10 +229,96 @@ function tracer_track(label::String, var_to_track::Union{Tuple{Function, Vector{
         for i = i₁ : i₂
             var_smooth[i] = sum(var[i-4:i+4])/9
         end
-        lines!(ax, t[i₁:i₂], var_smooth[i₁:i₂])
+        lines!(ax, f*t[i₁:i₂], var_smooth[i₁:i₂])
         #lines!(ax, t[i₁:i₂], var[i₁:i₂])
     end
     display(fig)
-    save("pretty_things/tracer-delta_" * label * ".pdf", fig)
+    #save("pretty_things/tracer-delta_" * label * ".pdf", fig)
     
+end
+
+function interesting_bits(data::FileData, drifter)
+    
+    f = 1e-4
+    t, ζ = lagr_track(data, "ζ", drifter)
+    t, δ = lagr_track(data, "δ", drifter)
+    t, u_x = lagr_track(data, "u_x", drifter)
+    t, v_x = lagr_track(data, "v_x", drifter)
+    i₁ = 5
+    i₂ = length(t) - 4
+    t = t[i₁:i₂]
+    ζ = sum([ζ[i₁+j : i₂+j] for j = -4 : 4])
+    δ = sum([δ[i₁+j : i₂+j] for j = -4 : 4])
+    u_x = sum([u_x[i₁+j : i₂+j] for j = -4 : 4])
+    v_x = sum([v_x[i₁+j : i₂+j] for j = -4 : 4])
+    u_y = v_x - ζ
+    v_y = δ - u_x
+    abs_∇𝐮 = (u_x.^2 + u_y.^2 + v_x.^2 + v_y.^2) .^ 0.5
+    sections = []
+    run_start = 1
+    for i = 1 : length(t)
+        if abs_∇𝐮[i] > 5f
+            if run_start == i
+                push!(sections, [])
+            end
+            push!(sections[end], i)
+        else
+            run_start = i+1
+        end
+    end
+
+    #=if length(sections) > 0
+
+        s = sections[1]
+        t₀ = t[argmax(abs.(ζ[s])) + s[1] - 1]
+        if f*t₀ < 20 && length(sections) > 1
+            s = sections[2]
+            t₀ = t[argmax(abs.(ζ[s])) + s[1] - 1]
+        end
+        T = minimum([t[s[end]] - t₀, t₀ - t[s[1]]])
+        t_rel = (t[s].-t₀)/T
+        
+        fig = Figure()
+        ax = Axis(fig[1, 1], xlabel = L"\zeta/f", ylabel = L"\delta/f")
+        lines!(ax, ζ[s]/f, δ[s]/f, color = t_rel, colormap = :coolwarm, colorrange = (-1.0,1.0))
+        
+        #ax = Axis(fig[1, 1], xlabel = L"ft", ylabel = L"\zeta/f,\:\delta/f")
+        #lines!(ax, f*(t[s1].-t₀), ζ[s1]/f)
+        #lines!(ax, f*(t[s1].-t₀), δ[s1]/f)
+
+        display(fig)
+    end=#
+
+    trajectories = []
+    for s in sections
+        t₀ = t[argmax(abs.(ζ[s])) + s[1] - 1]
+        if f*t₀ < 20 && length(sections) > 1
+            s = sections[2]
+            t₀ = t[argmax(abs.(ζ[s])) + s[1] - 1]
+        end
+        T = minimum([t[s[end]] - t₀, t₀ - t[s[1]]])
+        t_rel = (t[s].-t₀)/T
+        push!(trajectories, (ζ = ζ[s], δ = δ[s], t_rel = t_rel))
+    end
+
+    return trajectories
+
+end
+
+function all_traj_ζ_δ_plot(label::String)
+    
+    f = 1e-4
+
+    data = topdata(label)
+    drifters = extract_tracers(label)
+    trajectories = []
+    for drifter in drifters
+        [push!(trajectories, traj) for traj in interesting_bits(data, drifter)]
+    end
+
+    fig = Figure()
+    ax = Axis(fig[1, 1], xlabel = L"\zeta/f", ylabel = L"\delta/f")
+    [lines!(ax, traj.ζ/f, traj.δ/f, color = traj.t_rel, colormap = :coolwarm, colorrange = (-1.0,1.0)) for traj in trajectories]
+    display(fig)
+
 end
