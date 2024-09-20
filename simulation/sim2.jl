@@ -86,17 +86,14 @@ function run_sim(params, label)
     n = 5
     x₀ = [domain.x * (i % n) / n for i = 0 : n^2-1]
     y₀ = [domain.y * (i ÷ n) / n for i = 0: n^2-1]
-    z₀ = zeros(n^2)
-    b = z₀
-    ζ = z₀
-    δ = z₀
+    Os = zeros(n^2)
+    z₀ = Os
+    b = Os
+    ζ = Os
+    δ = Os
     if params.GPU
         x₀, y₀, z₀, b, ζ, δ = CuArray.([x₀, y₀, z₀, b, ζ, δ])
     end
-
-    #=b = arch_array(CPU(), zeros(n^2))
-    ζ = arch_array(CPU(), zeros(n^2))
-    δ = arch_array(CPU(), zeros(n^2))=#
     particles = StructArray{MyParticle}((x₀, y₀, z₀, b, ζ, δ))
 
     #=function drifter_dynamics(particles, model, Δt)
@@ -106,7 +103,7 @@ function run_sim(params, label)
         model.particles.properties.ζ .= ζ
     end=#
 
-    function drifter_dynamics!(particles, model, Δt)
+    #=function drifter_dynamics!(particles, model, Δt)
         u = Field(model.velocities.u + model.background_fields.velocities.u)    # Unpack velocity `Field`s
         v = Field(model.velocities.v)
         ζ = Field(∂x(v) - ∂y(u))
@@ -116,10 +113,18 @@ function run_sim(params, label)
         z = particles.properties.z
         𝐱 = [(x[i], y[i], z[i]) for i = 1 : N]
         model.particles.properties.ζ .= [interpolate(𝐱[i], ζ) for i = 1 : N]
-    end
+    end=#
 
     tracers = TracerFields((:b,), grid)
     b = tracers[1]
+    velocities = VelocityFields(grid)
+    u, v, w = velocities
+    
+    ζ = ∂x(v) - ∂y(u)
+    δ = ∂x(u) + ∂y(v)
+
+    tracked_fields = (; b, ζ, δ)
+    lagrangian_drifters = LagrangianParticles(particles; tracked_fields = tracked_fields)          
 
     # "Remember to use CuArray instead of regular Array when storing particle locations and properties on the GPU"?????
 
@@ -127,28 +132,15 @@ function run_sim(params, label)
     model = NonhydrostaticModel(; grid,
               advection = params.advection_scheme(),  # Specify the advection scheme.  Another good choice is WENO() which is more accurate but slower
               timestepper = :RungeKutta3, # Set the timestepping scheme, here 3rd order Runge-Kutta
-              tracers = :b,  # Set the name(s) of any tracers, here b is buoyancy and c is a passive tracer (e.g. dye)
+              tracers = (; b),  # Set the name(s) of any tracers; here, b is buoyancy
+              velocities = velocities,
+              auxiliary_fields = (; ζ, δ),
               buoyancy = Buoyancy(model = BuoyancyTracer()), # this tells the model that b will act as the buoyancy (and influence momentum)
               background_fields = (b = B_field, u = U_field),
               coriolis = coriolis = FPlane(f = p.f),
               closure = (diff_h, diff_v),
               boundary_conditions = BCs,
-              )
-
-    tracked_fields = model.tracers
-    lagrangian_drifters = LagrangianParticles(particles; tracked_fields = (; b), dynamics = drifter_dynamics!)          
-
-    model = NonhydrostaticModel(; grid,
-              advection = params.advection_scheme(),  # Specify the advection scheme.  Another good choice is WENO() which is more accurate but slower
-              timestepper = :RungeKutta3, # Set the timestepping scheme, here 3rd order Runge-Kutta
-              tracers = :b,  # Set the name(s) of any tracers, here b is buoyancy and c is a passive tracer (e.g. dye)
-              buoyancy = Buoyancy(model = BuoyancyTracer()), # this tells the model that b will act as the buoyancy (and influence momentum)
-              background_fields = (b = B_field, u = U_field),
-              coriolis = coriolis = FPlane(f = p.f),
-              closure = (diff_h, diff_v),
-              boundary_conditions = BCs,
-              particles = lagrangian_drifters
-              )
+              particles = lagrangian_drifters)
 
     # Set initial conditions
     set!(model, u = ic.u, v = ic.v, w = ic.w, b = ic.b)
