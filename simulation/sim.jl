@@ -5,6 +5,10 @@ using Printf
 using Oceananigans.TurbulenceClosures
 using CUDA
 
+using StructArrays
+using Oceananigans.Fields
+using Oceananigans.Architectures: arch_array
+
 include("../QOL.jl")
 include("../instabilities/modes.jl")
 
@@ -38,19 +42,28 @@ function physical_quantities_from_inputs(Ri, s)
 
 end
 
+struct MyParticle
+    x::Float64
+    y::Float64
+    z::Float64
+    b::Float64
+    ζ::Float64
+    δ::Float64
+end
+
 function run_sim(params, label)
 
     resolution = params.res
 
     @info label
 
-    p, domain, ic, background, BCs = physical_quantities_from_inputs(params.Ri, params.s)
+    scales, domain, ic, background, BCs = physical_quantities_from_inputs(params.Ri, params.s)
     
     # Here, p holds the physical parameters
 
     # Set the time-stepping parameters
-    max_Δt = 0.4 * pi / (p.N²^0.5)
-    duration = 20 / real(least_stable_mode(params.Ri, 4π/domain.x, 0, rate_only = true))
+    max_Δt = 0.4 * pi / (scales.N²^0.5)
+    duration = 1 / real(least_stable_mode(params.Ri, 4π/domain.x, 0, rate_only = true))
 
     # Build the grid
     if params.GPU
@@ -70,14 +83,51 @@ function run_sim(params, label)
     diff_v = VerticalScalarDiffusivity(ν = params.ν_v, κ = params.ν_v)
 
     # Introduce Lagrangian particles in an n × n grid
-    n = 20
+    n = 5
     x₀ = [domain.x * (i % n) / n for i = 0 : n^2-1]
     y₀ = [domain.y * (i ÷ n) / n for i = 0: n^2-1]
-    z₀ = zeros(n^2)
+    Os = zeros(n^2)
+    z₀ = Os
+    b = Os
+    ζ = Os
+    δ = Os
     if params.GPU
-        x₀, y₀, z₀ = CuArray.([x₀, y₀, z₀])
+        x₀, y₀, z₀, b, ζ, δ = CuArray.([x₀, y₀, z₀, b, ζ, δ])
     end
-    lagrangian_drifters = LagrangianParticles(x = x₀, y = y₀, z = z₀)
+    particles = StructArray{MyParticle}((x₀, y₀, z₀, b, ζ, δ))
+
+    #=function drifter_dynamics(particles, model, Δt)
+        u = Field(model.velocities.u + model.background_fields.velocities.u)    # Unpack velocity `Field`s
+        v = Field(model.velocities.v)
+        ζ = Field(∂x(v) - ∂y(u))
+        model.particles.properties.ζ .= ζ
+    end=#
+
+    #=function drifter_dynamics!(particles, model, Δt)
+        u = Field(model.velocities.u + model.background_fields.velocities.u)    # Unpack velocity `Field`s
+        v = Field(model.velocities.v)
+        ζ = Field(∂x(v) - ∂y(u))
+        N = length(particles.properties.x)
+        x = particles.properties.x
+        y = particles.properties.y
+        z = particles.properties.z
+        𝐱 = [(x[i], y[i], z[i]) for i = 1 : N]
+        model.particles.properties.ζ .= [interpolate(𝐱[i], ζ) for i = 1 : N]
+    end=#
+
+    tracers = TracerFields((:b,), grid)
+    b = tracers[1]
+    velocities = VelocityFields(grid)
+    u, v, w = velocities
+    pHY′ = CenterField(grid)
+    pNHS = CenterField(grid)
+    
+    ζ = ∂x(v) - ∂y(u)
+    δ = ∂x(u) + ∂y(v)
+    p = pHY′ + pNHS
+
+    tracked_fields = (; b, ζ, δ)
+    lagrangian_drifters = LagrangianParticles(particles; tracked_fields = tracked_fields)          
 
     # "Remember to use CuArray instead of regular Array when storing particle locations and properties on the GPU"?????
 
@@ -85,20 +135,22 @@ function run_sim(params, label)
     model = NonhydrostaticModel(; grid,
               advection = params.advection_scheme(),  # Specify the advection scheme.  Another good choice is WENO() which is more accurate but slower
               timestepper = :RungeKutta3, # Set the timestepping scheme, here 3rd order Runge-Kutta
-              tracers = :b,  # Set the name(s) of any tracers, here b is buoyancy and c is a passive tracer (e.g. dye)
+              tracers = (; b),  # Set the name(s) of any tracers; here, b is buoyancy
+              velocities = velocities,
+              auxiliary_fields = (; ζ, δ),
+              pressures = (; pHY′, pNHS),
               buoyancy = Buoyancy(model = BuoyancyTracer()), # this tells the model that b will act as the buoyancy (and influence momentum)
               background_fields = (b = B_field, u = U_field),
-              coriolis = coriolis = FPlane(f = p.f),
+              coriolis = coriolis = FPlane(f = scales.f),
               closure = (diff_h, diff_v),
               boundary_conditions = BCs,
-              particles = lagrangian_drifters
-              )
-    
+              particles = lagrangian_drifters)
+
     # Set initial conditions
     set!(model, u = ic.u, v = ic.v, w = ic.w, b = ic.b)
     
     # Build the simulation
-    simulation = Simulation(model, Δt = minimum([max_Δt/10, p.T/100]), stop_time = duration)
+    simulation = Simulation(model, Δt = minimum([max_Δt/10, scales.T/100]), stop_time = duration)
 
     # ### The `TimeStepWizard`
     #
@@ -146,13 +198,13 @@ function run_sim(params, label)
     v_z = Field(∂z(v))
     w_x = Field(∂x(w))
     w_y = Field(∂y(w))
-    u_g = Field(∂y(p̃)/p.f + model.background_fields.velocities.u)
-    v_g = Field(-∂x(p̃)/p.f)
+    u_g = Field(∂y(p̃)/scales.f + model.background_fields.velocities.u)
+    v_g = Field(-∂x(p̃)/scales.f)
     ζ_g = Field(∂x(v_g) - ∂y(u_g))
 
     # Also calculate derivatives of b
     b_x = Field(∂x(b))
-    b_y = Field(Field(∂y(b_pert)) + p.M²)
+    b_y = Field(Field(∂y(b_pert)) + scales.M²)
     b_z = Field(∂z(b))
 
     # Compute y-averages 𝐮̅(x,z) and b̅(x,z)
@@ -168,7 +220,7 @@ function run_sim(params, label)
     simulation.output_writers[:particles] =
         JLD2OutputWriter(model, (particles = model.particles,),
                                 filename = filename * ".jld2",
-                                schedule = TimeInterval(p.T/20),
+                                schedule = TimeInterval(scales.T/20),
                                 overwrite_existing = true)
 
     # Output the slice y = 0
@@ -177,7 +229,7 @@ function run_sim(params, label)
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, 1, :),
-                                schedule = TimeInterval(p.T/20),
+                                schedule = TimeInterval(scales.T/20),
                                 overwrite_existing = true)
 
     # Output the slice z = 0
@@ -186,7 +238,7 @@ function run_sim(params, label)
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, :, resolution[3]),
-                                schedule = TimeInterval(p.T/20),
+                                schedule = TimeInterval(scales.T/20),
                                 overwrite_existing = true)
 
     # Output the slice x = 0
@@ -195,7 +247,7 @@ function run_sim(params, label)
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g),
                                 filename = filename * ".jld2",
                                 indices = (1, :, :),
-                                schedule = TimeInterval(p.T/20),
+                                schedule = TimeInterval(scales.T/20),
                                 overwrite_existing = true)
 
     # Output a horizontal slice in the middle (verticall speaking)
@@ -204,14 +256,14 @@ function run_sim(params, label)
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, :, Int64(round((resolution[3]+1) / 2))),
-                                schedule = TimeInterval(p.T/20),
+                                schedule = TimeInterval(scales.T/20),
                                 overwrite_existing = true)
 
     filename = "raw_data/" * label * "_BI_y-avg"
     simulation.output_writers[:xy_slices_mid] =
         JLD2OutputWriter(model, (; u̅, v̅, w̅, b̅, avg_ℬ),
                                 filename = filename * ".jld2",
-                                schedule = TimeInterval(p.T/20),
+                                schedule = TimeInterval(scales.T/20),
                                 overwrite_existing = true)
 
     #=filename = "raw_data/" * label * "_full"
@@ -228,3 +280,29 @@ function run_sim(params, label)
     run!(simulation)
 
 end
+
+
+
+#=
+
+NonhydrostaticModel(;           grid,
+                                clock = Clock{eltype(grid)}(time = 0),
+                            advection = CenteredSecondOrder(),
+                             buoyancy = nothing,
+                             coriolis = nothing,
+                         stokes_drift = nothing,
+                  forcing::NamedTuple = NamedTuple(),
+                              closure = nothing,
+      boundary_conditions::NamedTuple = NamedTuple(),
+                              tracers = (),
+                          timestepper = :QuasiAdamsBashforth2,
+        background_fields::NamedTuple = NamedTuple(),
+        particles::ParticlesOrNothing = nothing,
+biogeochemistry::AbstractBGCOrNothing = nothing,
+                           velocities = nothing,
+              nonhydrostatic_pressure = CenterField(grid),
+         hydrostatic_pressure_anomaly = nothing,
+                   diffusivity_fields = nothing,
+                      pressure_solver = nothing,
+                    immersed_boundary = nothing,
+                     auxiliary_fields = NamedTuple())=#
