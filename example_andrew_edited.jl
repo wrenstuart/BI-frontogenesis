@@ -22,7 +22,7 @@
 
 using Random
 using Printf
-using Plots
+#using Plots
 using JLD2
 using StructArrays
 
@@ -155,6 +155,7 @@ struct TestParticle{T}
     T :: T
     S :: T
     C :: T
+    ζ :: T
     Tmod :: T
 end
 
@@ -166,9 +167,10 @@ end
 T = arch_array(CPU(), zeros(n_particles))
 S = arch_array(CPU(), zeros(n_particles))
 C = arch_array(CPU(), zeros(n_particles))
+ζ = arch_array(CPU(), zeros(n_particles))
 Tmod = arch_array(CPU(), zeros(n_particles))
 
-particles = StructArray{TestParticle}((x₀,y₀,z₀,T,S,C,Tmod))
+particles = StructArray{TestParticle}((x₀,y₀,z₀,T,S,C,ζ,Tmod))
 
 function particle_dynamics(lagrangian_particles,model,Δt)
     model.particles.properties.z.+=0.001*Δt
@@ -178,23 +180,26 @@ function particle_dynamics(lagrangian_particles,model,Δt)
     
 end  
 
-tracers = TracerFields((:T, :S, :C),grid)
+tracers = TracerFields((:T, :S, :C), grid)
 T, S, C = tracers
 
 velocities = VelocityFields(grid)
 u, v, w = velocities
 
+ζ = ∂x(v) - ∂y(u)
+
+lagrangian_particles = LagrangianParticles(particles; tracked_fields=(; T, S, C, ζ), dynamics=particle_dynamics)
+
 model = NonhydrostaticModel(; grid, buoyancy,
                             advection = UpwindBiasedFifthOrder(),
                             timestepper = :RungeKutta3,
-                            tracers = (:T, :S, :C),
+                            tracers = (; T, S, C),
                             velocities = velocities,
+                            particles = lagrangian_particles,
                             coriolis = FPlane(f=1e-4),
                             closure = ScalarDiffusivity(ν=1e-3, κ=1e-3),
-                            boundary_conditions = (u=u_bcs, T=T_bcs, S=S_bcs,))
-
-tracked_fields = model.tracers
-lagrangian_particles = LagrangianParticles(particles; tracked_fields, dynamics=particle_dynamics)
+                            boundary_conditions = (u=u_bcs, T=T_bcs, S=S_bcs,),
+                            auxiliary_fields = (; ζ))
 
 # Create a forcing function to include vertical 'slip' advection for buoyant or dense tracers
 
@@ -230,17 +235,6 @@ plankton_dynamics = Forcing(growing_and_grazing, field_dependencies = :C,
 # Coriolis forces, and the `AnisotropicMinimumDissipation` closure
 # for large eddy simulation to model the effect of turbulent motions at
 # scales smaller than the grid scale that we cannot explicitly resolve.
-
-model = NonhydrostaticModel(; grid, buoyancy,
-                            advection = UpwindBiasedFifthOrder(),
-                            timestepper = :RungeKutta3,
-                            tracers = (:T, :S, :C),
-                            velocities = velocities,
-                            coriolis = FPlane(f=1e-4),
-                            closure = ScalarDiffusivity(ν=1e-3, κ=1e-3),
-                            particles = lagrangian_particles,
-                            forcing = (C=plankton_dynamics,),
-                            boundary_conditions = (u=u_bcs, T=T_bcs, S=S_bcs,))
 
 # Notes:
 #
@@ -335,7 +329,7 @@ simulation.output_writers[:xz_slices] =
                          schedule = TimeInterval(1minute),
                            overwrite_existing = true)
 
- simulation.output_writers[:xy_slices] =
+simulation.output_writers[:xy_slices] =
     JLD2OutputWriter(model, merge(model.velocities, model.tracers, vorticity_tuple),
                           filename = "slice_xy.jld2",
                          indices = (:, :, Int(grid.Nz)),
@@ -357,6 +351,17 @@ run!(simulation)
 # We prepare for animating the flow by creating coordinate arrays,
 # opening the file, building a vector of the iterations that we saved
 # data at, and defining functions for computing colorbar limits:
+
+
+
+#=
+
+
+
+
+
+
+
 
 ## Coordinate arrays
 xw, yw, zw = nodes(model.velocities.w)
@@ -461,4 +466,4 @@ mp4(anim, "ocean_wind_mixing_and_convection.mp4", fps = 20) # hide
 
 close(file_xy)
 close(file_xz)
-close(file_particles)
+close(file_particles)=#
