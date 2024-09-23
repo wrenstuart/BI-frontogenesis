@@ -43,12 +43,58 @@ function physical_quantities_from_inputs(Ri, s)
 end
 
 struct MyParticle
+
     x::Float64
     y::Float64
     z::Float64
+
+    u::Float64
+    v::Float64
+    w::Float64
     b::Float64
+    p::Float64
+
     ζ::Float64
     δ::Float64
+    u_x::Float64
+    v_x::Float64
+    u_z::Float64
+    v_z::Float64
+    w_x::Float64
+    w_y::Float64
+    b_x::Float64
+    b_y::Float64
+    b_z::Float64
+    u_g::Float64
+    v_g::Float64
+    ζ_g::Float64    # Equivalently, ∇²Φ
+
+    # For diffusive terms
+    ζ_zz::Float64
+    ∇ₕ²ζ::Float64
+    δ_zz::Float64
+    ∇ₕ²δ::Float64
+    u_xzz::Float64
+    ∇ₕ²u_x::Float64
+    v_xzz::Float64
+    ∇ₕ²v_x::Float64
+    u_zzz::Float64
+    ∇ₕ²u_z::Float64
+    v_zzz::Float64
+    ∇ₕ²v_z::Float64
+    b_xzz::Float64
+    ∇ₕ²b_x::Float64
+    b_yzz::Float64
+    ∇ₕ²b_y::Float64
+    
+    # Probably not necessary but just in case
+    w_xzz::Float64
+    ∇ₕ²w_x::Float64
+    w_yzz::Float64
+    ∇ₕ²w_y::Float64
+    b_zzz::Float64
+    ∇ₕ²b_z::Float64
+
 end
 
 function run_sim(params, label)
@@ -57,12 +103,11 @@ function run_sim(params, label)
 
     @info label
 
-    scales, domain, ic, background, BCs = physical_quantities_from_inputs(params.Ri, params.s)
-    
-    # Here, p holds the physical parameters
+    phys_params, domain, ic, background, BCs = physical_quantities_from_inputs(params.Ri, params.s)
+    f = phys_params.f
 
     # Set the time-stepping parameters
-    max_Δt = 0.4 * pi / (scales.N²^0.5)
+    max_Δt = 0.4 * pi / (phys_params.N²^0.5)
     duration = 1 / real(least_stable_mode(params.Ri, 4π/domain.x, 0, rate_only = true))
 
     # Build the grid
@@ -83,37 +128,14 @@ function run_sim(params, label)
     diff_v = VerticalScalarDiffusivity(ν = params.ν_v, κ = params.ν_v)
 
     # Introduce Lagrangian particles in an n × n grid
-    n = 5
+    n = 10
     x₀ = [domain.x * (i % n) / n for i = 0 : n^2-1]
     y₀ = [domain.y * (i ÷ n) / n for i = 0: n^2-1]
     Os = zeros(n^2)
-    z₀ = Os
-    b = Os
-    ζ = Os
-    δ = Os
     if params.GPU
-        x₀, y₀, z₀, b, ζ, δ = CuArray.([x₀, y₀, z₀, b, ζ, δ])
+        x₀, y₀, Os = CuArray.([x₀, y₀, Os])
     end
-    particles = StructArray{MyParticle}((x₀, y₀, z₀, b, ζ, δ))
-
-    #=function drifter_dynamics(particles, model, Δt)
-        u = Field(model.velocities.u + model.background_fields.velocities.u)    # Unpack velocity `Field`s
-        v = Field(model.velocities.v)
-        ζ = Field(∂x(v) - ∂y(u))
-        model.particles.properties.ζ .= ζ
-    end=#
-
-    #=function drifter_dynamics!(particles, model, Δt)
-        u = Field(model.velocities.u + model.background_fields.velocities.u)    # Unpack velocity `Field`s
-        v = Field(model.velocities.v)
-        ζ = Field(∂x(v) - ∂y(u))
-        N = length(particles.properties.x)
-        x = particles.properties.x
-        y = particles.properties.y
-        z = particles.properties.z
-        𝐱 = [(x[i], y[i], z[i]) for i = 1 : N]
-        model.particles.properties.ζ .= [interpolate(𝐱[i], ζ) for i = 1 : N]
-    end=#
+    particles = StructArray{MyParticle}((x₀, y₀, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os, Os))
 
     tracers = TracerFields((:b,), grid)
     b = tracers[1]
@@ -122,11 +144,75 @@ function run_sim(params, label)
     pHY′ = CenterField(grid)
     pNHS = CenterField(grid)
     
-    ζ = ∂x(v) - ∂y(u)
-    δ = ∂x(u) + ∂y(v)
+    # To calculate (itermediary):
     p = pHY′ + pNHS
+    u_y = ∂y(u)
+    w_z = ∂z(w)
 
-    tracked_fields = (; b, ζ, δ)
+    # To store as an auxillary field:
+    u_x = ∂x(u)
+    v_x = ∂x(v)
+    u_z = ∂z(u)
+    v_z = ∂z(v)
+    w_x = ∂x(w)
+    w_y = ∂y(w)
+    b_x = ∂x(b)
+    b_y = ∂y(b)
+    b_z = ∂z(b)
+    ζ = v_x - u_y
+    δ = -w_z
+    u_g = -∂y(p)/f
+    v_g = ∂x(p)/f
+    ζ_g = ∂x(v_g) - ∂y(u_g)     # Equivalently, ∇²Φ
+
+    ∇ₕ²(𝑓) = ∂x(∂x(𝑓)) + ∂y(∂y(𝑓))
+
+    ζ_zz = ∂z(∂z(ζ))
+    ∇ₕ²ζ = ∇ₕ²(ζ)
+    δ_zz = ∂z(∂z(δ))
+    ∇ₕ²δ = ∇ₕ²(δ)
+
+    u_xzz = ∂z(∂z(u_x))
+    ∇ₕ²u_x = ∇ₕ²(u_x)
+    v_xzz = ∂z(∂z(v_x))
+    ∇ₕ²v_x = ∇ₕ²(v_x)
+    u_zzz = ∂z(∂z(u_z))
+    ∇ₕ²u_z = ∇ₕ²(u_z)
+    v_zzz = ∂z(∂z(v_z))
+    ∇ₕ²v_z = ∇ₕ²(v_z)
+    b_xzz = ∂z(∂z(b_x))
+    ∇ₕ²b_x = ∇ₕ²(b_x)
+    b_yzz = ∂z(∂z(b_y))
+    ∇ₕ²b_y = ∇ₕ²(b_y)
+    
+    w_xzz = ∂z(∂z(w_x))
+    ∇ₕ²w_x = ∇ₕ²(w_x)
+    w_yzz = ∂z(∂z(w_y))
+    ∇ₕ²w_y = ∇ₕ²(w_y)
+    b_zzz = ∂z(∂z(b_z))
+    ∇ₕ²b_z = ∇ₕ²(b_z)
+    #######################Look into D(𝑁²)/D𝑡?
+
+    #=∇ₕ²(𝑓) = ∂x(∂x(𝑓)) + ∂y(∂y(𝑓))
+    F_hor_ζ = -δ * ζ
+    F_cor_ζ = -f * δ
+    F_ver_ζ = u_z * w_y - v_z * w_x
+    V_mix_ζ = b#params.ν_v * ∂z(∂z(ζ))
+    H_dif_ζ = b#params.ν_h * ∇ₕ²(ζ)
+    F_hor_δ = -(u_x*u_x + 2u_y*v_x + v_y*v_y)
+    F_hor_δ_approx = -δ^2
+    F_cor_δ = f * ζ
+    F_ver_δ = -(u_z*w_x + v_z*w_y)
+    F_prs_δ = -f * ζ_g
+    V_mix_δ = b#params.ν_v * ∂z(∂z(δ))
+    H_dif_δ = b#params.ν_h * ∇ₕ²(δ)
+    # Might not need these, but just in case:
+    V_mix_b = b#params.ν_v * (b_x*∂z(∂z(b_x)) + b_y*∂z(∂z(b_y)))
+    H_dif_b = b#params.ν_h * (b_x*∇ₕ²(b_x) + b_y*∇ₕ²(b_y))
+    V_mix_u = b#params.ν_v * (u_x*∂z(∂z(u_x)) + u_y*∂z(∂z(u_y)) + v_x*∂z(∂z(v_x)) + v_y*∂z(∂z(v_y)))
+    H_dif_u = b#params.ν_h * (u_x*∇ₕ²(u_x) + u_y*∇ₕ²(u_y) + v_x*∇ₕ²(v_x) + v_y*∇ₕ²(v_y))=#
+
+    tracked_fields = (; u, v, w, b, p, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g, ζ_zz, ∇ₕ²ζ, δ_zz, ∇ₕ²δ, u_xzz, ∇ₕ²u_x, v_xzz, ∇ₕ²v_x, u_zzz, ∇ₕ²u_z, v_zzz, ∇ₕ²v_z, b_xzz, ∇ₕ²b_x, b_yzz, ∇ₕ²b_y, w_xzz, ∇ₕ²w_x, w_yzz, ∇ₕ²w_y, b_zzz, ∇ₕ²b_z)
     lagrangian_drifters = LagrangianParticles(particles; tracked_fields = tracked_fields)          
 
     # "Remember to use CuArray instead of regular Array when storing particle locations and properties on the GPU"?????
@@ -137,11 +223,11 @@ function run_sim(params, label)
               timestepper = :RungeKutta3, # Set the timestepping scheme, here 3rd order Runge-Kutta
               tracers = (; b),  # Set the name(s) of any tracers; here, b is buoyancy
               velocities = velocities,
-              auxiliary_fields = (; ζ, δ),
+              auxiliary_fields = (; p, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g, ζ_zz, ∇ₕ²ζ, δ_zz, ∇ₕ²δ, u_xzz, ∇ₕ²u_x, v_xzz, ∇ₕ²v_x, u_zzz, ∇ₕ²u_z, v_zzz, ∇ₕ²v_z, b_xzz, ∇ₕ²b_x, b_yzz, ∇ₕ²b_y, w_xzz, ∇ₕ²w_x, w_yzz, ∇ₕ²w_y, b_zzz, ∇ₕ²b_z, ),
               pressures = (; pHY′, pNHS),
               buoyancy = Buoyancy(model = BuoyancyTracer()), # this tells the model that b will act as the buoyancy (and influence momentum)
               background_fields = (b = B_field, u = U_field),
-              coriolis = coriolis = FPlane(f = scales.f),
+              coriolis = coriolis = FPlane(f = f),
               closure = (diff_h, diff_v),
               boundary_conditions = BCs,
               particles = lagrangian_drifters)
@@ -150,7 +236,7 @@ function run_sim(params, label)
     set!(model, u = ic.u, v = ic.v, w = ic.w, b = ic.b)
     
     # Build the simulation
-    simulation = Simulation(model, Δt = minimum([max_Δt/10, scales.T/100]), stop_time = duration)
+    simulation = Simulation(model, Δt = minimum([max_Δt/10, phys_params.T/100]), stop_time = duration)
 
     # ### The `TimeStepWizard`
     #
@@ -186,26 +272,21 @@ function run_sim(params, label)
     w = Field(model.velocities.w)
     b = Field(model.tracers.b + model.background_fields.tracers.b)          # Extract the buoyancy and add the background field
     b_pert = Field(model.tracers.b)
-    p̃ = Field(model.pressures.pNHS)    # (should i do + .pHY′?) # (ignoring the background pressure field, M²y(z+H) + N²z²/2)
-
-    # Now calculate the derivatives of 𝐮
-    # Only 8 are needed, since ∇⋅𝐮 = 0
-    ζ = Field(∂x(v) - ∂y(u))
-    δ = Field(∂x(u) + ∂y(v))    # The horizontal divergence
-    u_x = Field(∂x(u))
-    v_x = Field(∂x(v))
-    u_z = Field(∂z(u))
-    v_z = Field(∂z(v))
-    w_x = Field(∂x(w))
-    w_y = Field(∂y(w))
-    u_g = Field(∂y(p̃)/scales.f + model.background_fields.velocities.u)
-    v_g = Field(-∂x(p̃)/scales.f)
-    ζ_g = Field(∂x(v_g) - ∂y(u_g))
-
-    # Also calculate derivatives of b
-    b_x = Field(∂x(b))
-    b_y = Field(Field(∂y(b_pert)) + scales.M²)
-    b_z = Field(∂z(b))
+    p = Field(model.auxiliary_fields.p)    # (should i do + .pHY′?) # (ignoring the background pressure field, M²y(z+H) + N²z²/2)
+    ζ = Field(model.auxiliary_fields.ζ)
+    δ = Field(model.auxiliary_fields.δ)    # The horizontal divergence
+    u_x = Field(model.auxiliary_fields.u_x)
+    v_x = Field(model.auxiliary_fields.v_x)
+    u_z = Field(model.auxiliary_fields.u_z)
+    v_z = Field(model.auxiliary_fields.v_z)
+    w_x = Field(model.auxiliary_fields.w_x)
+    w_y = Field(model.auxiliary_fields.w_y)
+    u_g = Field(model.auxiliary_fields.u_g)
+    v_g = Field(model.auxiliary_fields.v_g)
+    ζ_g = Field(model.auxiliary_fields.ζ_g)
+    b_x = Field(model.auxiliary_fields.b_x)
+    b_y = Field(model.auxiliary_fields.b_y)
+    b_z = Field(model.auxiliary_fields.b_z)
 
     # Compute y-averages 𝐮̅(x,z) and b̅(x,z)
     u̅ = Field(Average(u, dims = 2))
@@ -220,7 +301,7 @@ function run_sim(params, label)
     simulation.output_writers[:particles] =
         JLD2OutputWriter(model, (particles = model.particles,),
                                 filename = filename * ".jld2",
-                                schedule = TimeInterval(scales.T/20),
+                                schedule = TimeInterval(phys_params.T/100),
                                 overwrite_existing = true)
 
     # Output the slice y = 0
@@ -229,7 +310,7 @@ function run_sim(params, label)
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, 1, :),
-                                schedule = TimeInterval(scales.T/20),
+                                schedule = TimeInterval(phys_params.T/20),
                                 overwrite_existing = true)
 
     # Output the slice z = 0
@@ -238,7 +319,7 @@ function run_sim(params, label)
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, :, resolution[3]),
-                                schedule = TimeInterval(scales.T/20),
+                                schedule = TimeInterval(phys_params.T/20),
                                 overwrite_existing = true)
 
     # Output the slice x = 0
@@ -247,7 +328,7 @@ function run_sim(params, label)
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g),
                                 filename = filename * ".jld2",
                                 indices = (1, :, :),
-                                schedule = TimeInterval(scales.T/20),
+                                schedule = TimeInterval(phys_params.T/20),
                                 overwrite_existing = true)
 
     # Output a horizontal slice in the middle (verticall speaking)
@@ -256,14 +337,14 @@ function run_sim(params, label)
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, u_g, v_g, ζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, :, Int64(round((resolution[3]+1) / 2))),
-                                schedule = TimeInterval(scales.T/20),
+                                schedule = TimeInterval(phys_params.T/20),
                                 overwrite_existing = true)
 
     filename = "raw_data/" * label * "_BI_y-avg"
     simulation.output_writers[:xy_slices_mid] =
         JLD2OutputWriter(model, (; u̅, v̅, w̅, b̅, avg_ℬ),
                                 filename = filename * ".jld2",
-                                schedule = TimeInterval(scales.T/20),
+                                schedule = TimeInterval(phys_params.T/20),
                                 overwrite_existing = true)
 
     #=filename = "raw_data/" * label * "_full"
@@ -280,29 +361,3 @@ function run_sim(params, label)
     run!(simulation)
 
 end
-
-
-
-#=
-
-NonhydrostaticModel(;           grid,
-                                clock = Clock{eltype(grid)}(time = 0),
-                            advection = CenteredSecondOrder(),
-                             buoyancy = nothing,
-                             coriolis = nothing,
-                         stokes_drift = nothing,
-                  forcing::NamedTuple = NamedTuple(),
-                              closure = nothing,
-      boundary_conditions::NamedTuple = NamedTuple(),
-                              tracers = (),
-                          timestepper = :QuasiAdamsBashforth2,
-        background_fields::NamedTuple = NamedTuple(),
-        particles::ParticlesOrNothing = nothing,
-biogeochemistry::AbstractBGCOrNothing = nothing,
-                           velocities = nothing,
-              nonhydrostatic_pressure = CenterField(grid),
-         hydrostatic_pressure_anomaly = nothing,
-                   diffusivity_fields = nothing,
-                      pressure_solver = nothing,
-                    immersed_boundary = nothing,
-                     auxiliary_fields = NamedTuple())=#
