@@ -11,6 +11,10 @@ using Oceananigans
 using JLD2
 using Printf
 
+f = 1e-4
+ν_v = 1e-3
+ν_h = 1e+1
+
 struct FileData     # Useful struct for storing general data associated with a file
     file::JLD2.JLDFile{JLD2.MmapIO}
     x::Vector{Float64}
@@ -151,40 +155,19 @@ function δ_on_f_func(input)
     return δ / f
 end
 
-function F_hor_δ_func(input)
-    δ, ζ, u_x, v_x = input
-    v_y = δ - u_x
-    u_y = v_x - ζ
-    return - (u_x^2 + 2v_x*u_y + v_y^2)
-end
-function F_cor_and_pres_δ_func(input)
-    ζ, ζ_g = input
-    ζ_ag = ζ - ζ_g
-    return f * ζ_ag
-end
-function F_vert_δ_func(input)
-    u_z, v_z, w_x, w_y = input
-    return - (u_z * w_x + v_z * w_y)
-end
-F_hor_δ_appr_func(input) = -input[1]^2
-F_cor_and_pres_δ_appr_func(input) = F_cor_and_pres_δ_func(input)
-F_vert_δ_appr_func(input) = 0
+F_hor_ζ_𝑓((ζ, δ)) = -δ * ζ
+F_cor_ζ_𝑓((δ,)) = -f * δ
+F_ver_ζ_𝑓((u_z, v_z, w_x, w_y)) = u_z * w_y - v_z * w_x
+V_mix_ζ_𝑓((ζ_zz,)) = ν_v * ζ_zz
+H_dif_ζ_𝑓((∇ₕ²ζ)) = ν_h * ∇ₕ²ζ
 
-function F_hor_ζ_func(input)
-    δ, ζ = input
-    return - δ * ζ
-end
-function F_cor_ζ_func(input)
-    δ = input[1]
-    return - f * δ
-end
-function F_vert_ζ_func(input)
-    u_z, v_z, w_x, w_y = input
-    return u_z * w_y - v_z * w_x
-end
-F_hor_ζ_appr_func(input) = F_hor_ζ_func(input)
-F_cor_ζ_appr_func(input) = F_cor_ζ_func(input)
-F_vert_ζ_appr_func(input) = 0
+F_hor_δ_𝑓((u_x, v_x, ζ, δ)) = -(u_x^2 + 2v_x * (v_x-ζ) + (δ-u_x)^2)
+F_hor_δ_appr_𝑓((δ,)) = -δ^2
+F_cor_δ_𝑓((ζ,)) = f * ζ
+F_ver_δ_𝑓((u_z, v_z, w_x, w_y)) = -(u_x * w_x + v_z * w_y)
+F_prs_δ_𝑓((ζ_g,)) = -f * ζ_g
+V_mix_δ_𝑓((δ_zz,)) = ν_v * δ_zz
+H_dif_δ_𝑓((∇ₕ²δ,)) = ν_h * ∇ₕ²δ
 
 plotting_vars = (Ri = (Ri_func, ["b_z", "u_z", "v_z"]),
                  KE = (KE_func, ["u", "v", "w"]),
@@ -192,19 +175,20 @@ plotting_vars = (Ri = (Ri_func, ["b_z", "u_z", "v_z"]),
                  ζ_on_f = (ζ_on_f_func, ["ζ"]),
                  δ_on_f = (δ_on_f_func, ["δ"]),
 
-                 F_hor_δ = (F_hor_δ_func, ["δ", "ζ", "u_x", "v_x"]),
-                 F_hor_δ_appr = (F_hor_δ_appr_func, ["δ"]),
-                 F_cor_and_pres_δ = (F_cor_and_pres_δ_func, ["ζ", "ζ_g"]),
-                 F_cor_and_pres_δ_appr = (F_cor_and_pres_δ_appr_func, ["ζ", "ζ_g"]),
-                 F_vert_δ = (F_vert_δ_func, ["u_z", "v_z", "w_x", "w_y"]),
-                 F_vert_δ_appr = (F_vert_δ_appr_func, ["δ"]),
+                 F_hor_ζ = (F_hor_ζ_𝑓, ["ζ", "δ"]),
+                 F_cor_ζ = (F_cor_ζ_𝑓, ["δ"]),
+                 F_ver_ζ = (F_ver_ζ_𝑓, ["u_z", "v_z", "w_x", "w_y"]),
+                 V_mix_ζ = (V_mix_ζ_𝑓, ["ζ_zz"]),
+                 H_dif_ζ = (H_dif_ζ_𝑓, ["∇ₕ²ζ"]),
 
-                 F_hor_ζ = (F_hor_ζ_func, ["δ", "ζ"]),
-                 F_hor_ζ_appr = (F_hor_ζ_appr_func, ["δ", "ζ"]),
-                 F_cor_ζ = (F_cor_ζ_func, ["δ"]),
-                 F_cor_ζ_appr = (F_cor_ζ_appr_func, ["δ"]),
-                 F_vert_ζ = (F_vert_ζ_func, ["u_z", "v_z", "w_x", "w_y"]),
-                 F_vert_appr_ζ = (F_vert_ζ_appr_func, ["ζ"]))
+                 F_hor_δ = (F_hor_δ_𝑓, ["u_x", "v_x", "ζ", "δ"]),
+                 F_hor_δ_appr = (F_hor_δ_appr_𝑓, ["δ"]),
+                 F_cor_δ = (F_cor_δ_𝑓, ["ζ"]),
+                 F_prs_δ = (F_prs_δ_𝑓, ["ζ_g"]),
+                 F_ver_δ = (F_ver_δ_𝑓, ["u_z", "v_z", "w_x", "w_y"]),
+                 V_mix_δ = (V_mix_δ_𝑓, ["δ_zz"]),
+                 H_dif_δ = (H_dif_δ_𝑓, ["∇ₕ²δ"]))
+nothing
 
 function tracer_track(label::String, var_to_track::Union{Tuple{Function, Vector{String}}, String})  # Tracks var_to_track for all traccers (or first 20 as currently edited to be) and plots the data vs. time
 
