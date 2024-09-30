@@ -8,7 +8,7 @@ using Statistics
 using OffsetArrays
 using FFTW
 
-function snap_ζ_xy(label, frac)
+#=function snap_ζ_xy(label, frac)
 
     # Set the two dimensional parameters
     H = 50    # Depth of mixed layer
@@ -148,6 +148,51 @@ function snap_δ_xy(label, frac)
 
     display(fig)
     save("pretty_things/" * "δ-snap.pdf", fig)
+
+end=#
+
+function snap_pic(label, ft, b_range, ζ_on_f_range, δ_on_f_range)
+
+    # Set the two dimensional parameters
+    H = 50    # Depth of mixed layer
+    f = 1e-4  # Coriolis parameter
+
+    filename = "raw_data/" * label * "_BI_xy" * ".jld2"
+
+    # Read in the first iteration. We do this to load the grid
+    ζ_ic = FieldTimeSeries(filename, "ζ", iterations = 0)
+
+    # Load in co-ordinate arrays
+    # We do this separately for each variable since Oceananigans uses a staggered grid
+    x, y, ~ = nodes(ζ_ic)
+
+    # Now, open the file with our data
+    file = jldopen(filename)
+
+    iterations = parse.(Int, keys(file["timeseries/t"]))
+    ts = [file["timeseries/t/$iter"] for iter in iterations]
+    iter = iterations[argmin(abs.(ts .- ft/f))]
+
+    # Set up observables for plotting that will update as the iteration number is updated
+    b = file["timeseries/b/$iter"][:,:,1]
+    ζ = file["timeseries/ζ/$iter"][:,:,1]
+    δ = file["timeseries/δ/$iter"][:,:,1]
+
+    fig = Figure()
+    ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b", width = 250, height = 250)
+    ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f", width = 250, height = 250)
+    ax_δ = Axis(fig[1, 3][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Horizontal divergence, }\delta/f", width = 250, height = 250)
+    hm_b = heatmap!(ax_b, x/1kilometer, y/1kilometer, b; colorrange = b_range)
+    hm_ζ = heatmap!(ax_ζ, x/1kilometer, y/1kilometer, ζ/f; colormap = :coolwarm, colorrange = ζ_on_f_range)
+    hm_δ = heatmap!(ax_δ, x/1kilometer, y/1kilometer, δ/f; colormap = :coolwarm, colorrange = δ_on_f_range)
+    Colorbar(fig[1, 1][1, 2], hm_b)
+    Colorbar(fig[1, 2][1, 2], hm_ζ)
+    Colorbar(fig[1, 3][1, 2], hm_δ)
+    Makie.Label(fig[0, 1:3], L"ft=%$(ft)")
+
+    resize_to_layout!(fig)
+    display(fig)
+    #save("pretty_things/" * "ζ-snap.pdf", fig)
 
 end
 

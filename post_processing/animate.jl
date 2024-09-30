@@ -42,6 +42,7 @@ function ani_xy(label::String, a::Float64, b::Float64)  # Animate vorticity and 
     end
 
     δ = lift(iter -> file["timeseries/δ/$iter"][:, :, 1], iter)
+    δ_on_f = lift(iter -> file["timeseries/δ/$iter"][:, :, 1]/f, iter)
     u_x = lift(iter -> file["timeseries/u_x/$iter"][:, :, 1], iter)
     v_x = lift(iter -> file["timeseries/v_x/$iter"][:, :, 1], iter)
     u_y = lift((v_x, ζ) -> v_x - ζ, v_x, ζ₃_xy)
@@ -72,15 +73,19 @@ function ani_xy(label::String, a::Float64, b::Float64)  # Animate vorticity and 
     # Create the plot, starting at t = 0
     # This will be updated as the observable iter is updated
     iter[] = 0
-    fig = Figure(size = (1280, 720))
-    ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b")
-    ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f")
+    fig = Figure(size = (950, 320))
+    ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b", width = 200, height = 200)
+    ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f", width = 200, height = 200)
+    ax_δ = Axis(fig[1, 3][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Horizontal divergence, }\delta/f", width = 200, height = 200)
     hm_b = heatmap!(ax_b, xb/1kilometer, yb/1kilometer, b_xy; colorrange = (-0.5*b_max, 1.5*b_max));
     hm_ζ₃ = heatmap!(ax_ζ, xζ₃/1kilometer, yζ₃/1kilometer, ζ_on_f; colormap = :coolwarm, colorrange = (-ζ₃_max/f, ζ₃_max/f))
-    #hm_ζ₃ = heatmap!(ax_ζ, xζ₃/1kilometer, yζ₃/1kilometer, e; colormap = :coolwarm, colorrange = (-5f^2, 5f^2));
-    Colorbar(fig[1, 1][1, 2], hm_b)
-    Colorbar(fig[1, 2][1, 2], hm_ζ₃)
-    Makie.Label(fig[0, 1:2], str_ft)
+    hm_δ = heatmap!(ax_δ, xζ₃/1kilometer, yζ₃/1kilometer, δ_on_f; colormap = :coolwarm, colorrange = (-ζ₃_max/f, ζ₃_max/f))
+    Colorbar(fig[1, 1][1, 2], hm_b, height = 200)
+    Colorbar(fig[1, 2][1, 2], hm_ζ₃, height = 200)
+    Colorbar(fig[1, 3][1, 2], hm_δ, height = 200)
+    Makie.Label(fig[0, 1:3], str_ft)
+    #resize_to_layout!(fig)
+    
 
     ##############################################
     # SEE IF CAN CHANGE COLORS, ADD TIME COUNTER #
