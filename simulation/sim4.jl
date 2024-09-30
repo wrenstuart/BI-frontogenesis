@@ -25,7 +25,6 @@ function physical_quantities_from_inputs(Ri, s)
     Lz = p.H                        # Vertical extent
 
     # Set relative amplitude for random velocity perturbation
-    kick = 0.05 * p.U
 
     B₀(x, y, z, t) = p.M² * y + p.N² * z    # Buoyancy
     U₀(x, y, z, t) = -p.M²/p.f * (z + Lz)   # Zonal velocity
@@ -48,46 +47,26 @@ struct MyParticle
     y::Float64
     z::Float64
 
-    u::Float64
-    v::Float64
-    w::Float64
-
+    # Gradient terms
+    ζ::Float64
+    δ::Float64
+    b_x::Float64
+    b_y::Float64
+    b_z::Float64
     u_x::Float64
     v_x::Float64
     u_z::Float64
     v_z::Float64
-    w_x::Float64
-    w_y::Float64
-    b_x::Float64
-    b_y::Float64
-    b_z::Float64
-    ζ::Float64
-    δ::Float64
 
-    fu_g::Float64
-    fv_g::Float64
     fζ_g::Float64
 
-    ∇ₕ²b_x::Float64
-    ∇ₕ²b_y::Float64
-    ∇ₕ²b_z::Float64
+    # Mixing terms
     b_xzz::Float64
     b_yzz::Float64
-    b_zzz::Float64
-    u_zxx::Float64
-    u_zyy::Float64
-    u_zzz::Float64
-    v_zxx::Float64
-    v_zyy::Float64
-    v_zzz::Float64
-    ζ_xx::Float64
-    ζ_yy::Float64
-    ζ_zz::Float64
-    δ_xx::Float64
-    δ_yy::Float64
-    δ_zz::Float64
     ∇ₕ²ζ::Float64
+    ζ_zz::Float64
     ∇ₕ²δ::Float64
+    δ_zz::Float64
 
 end
 
@@ -122,21 +101,20 @@ function run_sim(params, label)
     diff_v = VerticalScalarDiffusivity(ν = params.ν_v, κ = params.ν_v)
 
     # Introduce Lagrangian particles in an n × n grid
-    n = 10
+    n = 20
     x₀ = [domain.x * (i % n) / n for i = 0 : n^2-1]
     y₀ = [domain.y * (i ÷ n) / n for i = 0: n^2-1]
-    O() = zeros(n^2)
     if params.GPU
         x₀, y₀ = CuArray.([x₀, y₀])
-        O() = CuArray(zeros(n^2))
     end
-    particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
+    O = params.GPU ? () -> CuArray(zeros(n^2)) : () -> zeros(n^2)
+    particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
 
     # Extract fundamental variable fields:
     velocities = VelocityFields(grid)
     u, v, w = velocities
     tracers = TracerFields((:b,), grid)
-    b = tracers[1]
+    b, = tracers
     pHY′ = CenterField(grid)
     pNHS = CenterField(grid)
     
@@ -151,56 +129,20 @@ function run_sim(params, label)
     M²_on_f = phys_params.M²/f
     u_z = ∂z(u) - M²_on_f
     v_z = ∂z(v)
-    w_x = ∂x(w)
-    w_y = ∂y(w)
     b_x = ∂x(b)
     b_y = ∂y(b) + phys_params.M²
     b_z = ∂z(b)
     ζ = v_x - u_y
     δ = -w_z
 
-    fu_g = -∂y(p)
-    fv_g = ∂x(p)
-    fζ_g = ∂x(fv_g) - ∂y(fu_g)  # Equivalently, ∇²Φ
-
-    u_xxx = ∂x(∂x(u_x))
-    u_xyy = ∂y(∂y(u_x))
-    u_xzz = ∂z(∂z(u_x))
-    v_xxx = ∂x(∂x(v_x))
-    v_xyy = ∂y(∂y(v_x))
-    v_xzz = ∂z(∂z(v_x))
-    u_zxx = ∂x(∂x(u_z))
-    u_zyy = ∂y(∂y(u_z))
-    u_zzz = ∂z(∂z(u_z))
-    v_zxx = ∂x(∂x(v_z))
-    v_zyy = ∂y(∂y(v_z))
-    v_zzz = ∂z(∂z(v_z))     # this one (specifically) is BADDDDDDD
-    w_xxx = ∂x(∂x(w_x))
-    w_xyy = ∂y(∂y(w_x))
-    w_xzz = ∂z(∂z(w_x))
-    w_yxx = ∂x(∂x(w_y))
-    w_yyy = ∂y(∂y(w_y))
-    w_yzz = ∂z(∂z(w_y))
-    u_yxx = ∂x(∂x(u_y))
-    u_yyy = ∂y(∂y(u_y))
-    u_yzz = ∂z(∂z(u_y))
     ∇ₕ²(𝑓) = ∂x(∂x(𝑓)) + ∂y(∂y(𝑓))
-    ζ_xx = ∂x(∂x(ζ))
-    ζ_yy = ∂y(∂y(ζ))
     ζ_zz = ∂z(∂z(ζ))
     ∇ₕ²ζ = ∇ₕ²(ζ)
-    δ_xx = ∂x(∂x(δ))
-    δ_yy = ∂y(∂y(δ))
     δ_zz = ∂z(∂z(δ))
     ∇ₕ²δ = ∇ₕ²(δ)
-
-    # The following do NOT work for tracked particles on a GPU:
-    ∇ₕ²b_x = ∇ₕ²(b_x)
+    fζ_g = ∇ₕ²(p)
     b_xzz = ∂z(∂z(b_x))
-    ∇ₕ²b_y = ∇ₕ²(b_y)
     b_yzz = ∂z(∂z(b_y))
-    ∇ₕ²b_z = ∇ₕ²(b_z)
-    b_zzz = ∂z(∂z(b_z))
 
     #=∇ₕ²(𝑓) = ∂x(∂x(𝑓)) + ∂y(∂y(𝑓))
     F_hor_ζ = -δ * ζ
@@ -230,9 +172,9 @@ function run_sim(params, label)
     model = NonhydrostaticModel(; grid,
               advection = params.advection_scheme(),  # Specify the advection scheme.  Another good choice is WENO() which is more accurate but slower
               timestepper = :RungeKutta3, # Set the timestepping scheme, here 3rd order Runge-Kutta
-              tracers = (; b),  # Set the name(s) of any tracers; here, b is buoyancy
+              tracers = tracers,  # Set the name(s) of any tracers; here, b is buoyancy
               velocities = velocities,
-              auxiliary_fields = (; ζ, δ, b_x, b_y, b_z, u_x, v_x, u_z, v_z, ∇ₕ²ζ, ζ_zz, ∇ₕ²δ, δ_zz, fζ_g, b_xzz, b_yzz),
+              auxiliary_fields = tracked_fields,
               pressures = (; pHY′, pNHS),
               buoyancy = Buoyancy(model = BuoyancyTracer()), # this tells the model that b will act as the buoyancy (and influence momentum)
               background_fields = (b = B_field, u = U_field),
@@ -325,7 +267,7 @@ function run_sim(params, label)
     # Output the slice z = 0
     filename = "raw_data/" * label * "_BI_xy"
     simulation.output_writers[:xy_slices] =
-        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, fu_g, fv_g, fζ_g),#, ∇ₕ²b_x, b_xzz, ∇ₕ²b_y, b_yzz),
+        JLD2OutputWriter(model, (; u, v, w, b, p, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, fu_g, fv_g, fζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, :, resolution[3]),
                                 schedule = TimeInterval(phys_params.T/20),
