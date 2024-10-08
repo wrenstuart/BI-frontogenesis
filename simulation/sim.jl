@@ -81,7 +81,7 @@ function run_sim(params, label)
 
     # Set the time-stepping parameters
     max_Δt = 0.4 * pi / (phys_params.N²^0.5)
-    duration = 1 / real(least_stable_mode(params.Ri, 4π/domain.x, 0, rate_only = true))
+    duration = 20 / real(least_stable_mode(params.Ri, 4π/domain.x, 0, rate_only = true))
 
     # Build the grid
     if params.GPU

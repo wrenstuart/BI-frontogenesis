@@ -2,7 +2,7 @@ using Oceananigans, JLD2, Makie, Printf
 using Oceananigans.Units
 using CairoMakie
 using FFTW
-
+using Statistics
 
 function surface_func(file_label, f, input_labels)
     
@@ -79,40 +79,40 @@ function timeseries(label, Ri)
     t, ℬ_surf, ~, ~ = surface_function_stats(label, x -> - x[1] .* x[2], ["w", "b"])
     t, ℬ_vol = buoyancy_flux(label)
     ℬ = ℬ_vol
-    t, μ_ζ, σ²_ζ, skew_ζ = surface_stats(label, "ζ₃")
+    t, μ_ζ, σ²_ζ, skew_ζ = surface_stats(label, "ζ")
     t, μ_δ, σ²_δ, skew_δ = surface_stats(label, "δ")
     μ_Ri = t .* 0
     ft = t .* 1e-4
 
     fig = Figure()
-    ax = Axis(fig[1, 1], xlabel = L"ft", ylabel=L"\text{Skewness}")
+    ax = Axis(fig[1, 1], xlabel = L"ft", ylabel=L"\text{Skewness}", width=250, height=250)
     l1 = lines!(ft, skew_ζ, label = L"\zeta")
     l2 = lines!(ft, skew_δ, label = L"\delta")
-    axislegend(position = :rc)
+    axislegend(position = :rb)
+    resize_to_layout!(fig)
     save("pretty_things/" * label * "_skew.pdf", fig)
     display(fig)
     fig = Figure()
-    ax = Axis(fig[1, 1], xlabel = L"ft", ylabel=L"\text{log-RMS}")
-    l1 = lines!(ft, log.(σ²_ζ.^0.5/f), label = L"\zeta")
-    l2 = lines!(ft, log.(σ²_δ.^0.5/f), label = L"\delta")
-    l3 = lines!(ft, log.(W²) .+ 20, label = L"KE_v")
-    axislegend(position = :rc)
-    slope = (10.8*(1+Ri))^(-0.5)
-    i₁ = Int(round(length(ft)*0.15))
-    i₂ = Int(round(length(ft)*0.75))
-    lines!(ft[i₁:i₂], ft[i₁:i₂] * slope .- 15, linestyle = :dot)
-    lines!(ft[i₁:i₂], ft[i₁:i₂] * 2*slope .- 30, linestyle = :dot)
+    ax = Axis(fig[1, 1], xlabel = L"ft", ylabel=L"\ln(\sigma^2)", width=250, height=250)
+    l1 = lines!(ft, log.(σ²_ζ/f^2), label = L"\zeta/f")
+    l2 = lines!(ft, log.(σ²_δ/f^2), label = L"\delta/f")
+    l4 = lines!(ft, -log.(σ²_ζ./σ²_δ), label = L"\delta/\zeta")
+    axislegend(position = :rt)
+    resize_to_layout!(fig)
     save("pretty_things/" * label * "_var.pdf", fig)
     display(fig)
     fig = Figure()
-    ax = Axis(fig[1, 1], xlabel = L"ft", ylabel=L"\text{Buoyancy flux }\mathcal{B}=-\langle wb\rangle")
-    l = lines!(ft, ℬ)
+    power_ten = floor(log10(maximum(ℬ)))+6
+    @info power_ten
+    ax = Axis(fig[1, 1], xlabel = L"ft", ylabel=L"\text{Buoyancy flux, }\mathcal{B}=-\langle w'b'\rangle/\mathrm{mm^2\,s^{-3}}", width=250, height=250)#, yticks = [0, 10^power_ten])
+    l = lines!(ft, ℬ/10^(-6))
+    resize_to_layout!(fig)
     save("pretty_things/" * label * "_ℬ.pdf", fig)
     display(fig)
 
 end
 
-function f_timeseries(label, Ri)
+#=function f_timeseries(label, Ri)    # (Fourier series)
 
     function abs_f_cpts(field, m_max = 4, l_max = 2)
         fmags = zeros(1+m_max, 1+l_max)
@@ -157,14 +157,15 @@ function f_timeseries(label, Ri)
     save("pretty_things/" * label * "_var.pdf", fig)
     display(fig)
 
-end
+end=#
 
-function get_iter(label, t)
+function get_iter(label, ft)
+    f = 1e-4
     filename = "raw_data/" * label * "_BI_xy.jld2"
     file = jldopen(filename)
     iterations = parse.(Int, keys(file["timeseries/t"]))
     ts = [file["timeseries/t/$iter"] for iter in iterations]
-    i = argmin(abs.(ts .- t))
+    i = argmin(abs.(ts .- ft/f))
     return iterations[i]
 end
 
@@ -174,8 +175,8 @@ function ζ_δ_joint_freq(ζ, δ)
     ζ = vec(ζ)
     δ = vec(δ)
     n = 200
-    a = -12f
-    b = 12f
+    a = -10f
+    b = 10f
     Δ  = (b-a) / (n-2)
     midpoints = a + 0.5Δ : Δ : b - 0.5Δ
     freq = zeros(Float64, (n, n))
@@ -192,59 +193,64 @@ function ζ_δ_joint_freq(ζ, δ)
 
 end
 
-function snapshots(label, t)
-
+function ζ_δ_joint_hist(label, ft)
+    
     f = 1e-4
-    iter = get_iter(label, t)
+    iter = get_iter(label, ft)
     filename = "raw_data/" * label * "_BI_xy.jld2"
     file = jldopen(filename)
-    ic = FieldTimeSeries(filename, "ζ₃", iterations = 0)
-    x, y, z = nodes(ic)
-    ζ = file["timeseries/ζ₃/$iter"][:, :, 1]
-    δ = file["timeseries/δ/$iter"][:, :, 1]
-    b = file["timeseries/b/$iter"][:, :, 1]
-
+    ζ = (file["timeseries/ζ/$iter"])
+    δ = (file["timeseries/δ/$iter"])
+    x, y, freqs = ζ_δ_joint_freq(ζ, δ)
     fig = Figure()
-    ax = Axis(fig[1, 1], ylabel=L"\text{Probability density}")
-    h1 = stephist!(vec(ζ/f), bins = 1000, normalization = :pdf, label = L"\zeta/f")
-    h2 = stephist!(vec(δ/f), bins = 1000, normalization = :pdf, label = L"\delta/f")
-    axislegend()
-    xlims!(ax, (-6, 6))
-    display(fig)
-    save("pretty_things/" * label * "_hist.pdf", fig)
-
-    ζ_ax, δ_ax, freq = ζ_δ_joint_freq(ζ, δ)
-    fig = Figure(resolution = (600,600), fontsize = 20)
-    ax = Axis(fig[1, 1], xlabel = L"\zeta/f", ylabel = L"\delta/f",
-    title = L"\text{Joint histogram of vorticity and divergence}")
-    hm = heatmap!(ax, ζ_ax/f, δ_ax/f, -log.(1 .+ freq), colormap = :bilbao)
-    lines!([0, 0], [δ_ax[1]/f, δ_ax[end]/f], color = :black, linestyle = :dash)
-    lines!([ζ_ax[1]/f, ζ_ax[end]/f], [0, 0], color = :black, linestyle = :dash)
-    save("pretty_things/" * label * "_joint-hist.png", fig)
-
-    ζ_max = maximum(ζ)
-    fig = Figure(fontsize = 20)
-    ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b/\mathrm{m\,s^{-2}}", aspect = 1)
-    ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f", aspect = 1)
-    hm_b = heatmap!(ax_b, x/1kilometer, y/1kilometer, b);
-    hm_ζ = heatmap!(ax_ζ, x/1kilometer, y/1kilometer, ζ/f; colormap = :coolwarm, colorrange = (-ζ_max/1.5f, ζ_max/1.5f));
-    Colorbar(fig[1, 1][1, 2], hm_b)
-    Colorbar(fig[1, 2][1, 2], hm_ζ)
-    colsize!(fig.layout, 1, Aspect(1, 1.0))
-    colsize!(fig.layout, 2, Aspect(1, 1.0))
+    ax = Axis(fig[1, 1], xlabel = L"\zeta/f", ylabel = L"\delta/f", width = 250, height = 250, title=L"ft=%$(ft)")
+    heatmap!(ax, x/f, y/f, freqs.^0.4, colormap = :amp, colorrange = (0, 20))
+    lines!(ax, [0, 0], [-10, 10], color = :gray, linestyle = :dash, linewidth = 1)
+    lines!(ax, [-10, 10], [0, 0], color = :gray, linestyle = :dash, linewidth = 1)
+    lines!(ax, [-1, -1], [-10, 10], color = :blue, linestyle = :dot, linewidth = 1)
     resize_to_layout!(fig)
     display(fig)
-    save("pretty_things/" * label * "_top-pic.png", fig)
+
+end
+
+function ζ_δ_joint_hists(label, ft1, ft2)
+    
+    f = 1e-4
+    iter1 = get_iter(label, ft1)
+    iter2 = get_iter(label, ft2)
+    filename = "raw_data/" * label * "_BI_xy.jld2"
+    file = jldopen(filename)
+    ζ1 = (file["timeseries/ζ/$iter1"])
+    δ1 = (file["timeseries/δ/$iter1"])
+    ζ2 = (file["timeseries/ζ/$iter2"])
+    δ2 = (file["timeseries/δ/$iter2"])
+    x, y, freqs1 = ζ_δ_joint_freq(ζ1, δ1)
+    ~, ~, freqs2 = ζ_δ_joint_freq(ζ2, δ2)
+    fig = Figure()
+    ax1 = Axis(fig[1, 1], xlabel = L"\zeta/f", ylabel = L"\delta/f", width = 250, height = 250, title=L"ft=%$(ft1)")
+    heatmap!(ax1, x/f, y/f, freqs1.^0.4, colormap = :amp, colorrange = (0, 20))
+    lines!(ax1, [0, 0], [-10, 10], color = :gray, linestyle = :dash, linewidth = 1)
+    lines!(ax1, [-10, 10], [0, 0], color = :gray, linestyle = :dash, linewidth = 1)
+    lines!(ax1, [-1, -1], [-10, 10], color = :brown, linestyle = :dot, linewidth = 1)
+    ax2 = Axis(fig[1, 2], xlabel = L"\zeta/f", width = 250, height = 250, title=L"ft=%$(ft2)")
+    heatmap!(ax2, x/f, y/f, freqs2.^0.4, colormap = :amp, colorrange = (0, 20))
+    lines!(ax2, [0, 0], [-10, 10], color = :gray, linestyle = :dash, linewidth = 1)
+    lines!(ax2, [-10, 10], [0, 0], color = :gray, linestyle = :dash, linewidth = 1)
+    lines!(ax2, [-1, -1], [-10, 10], color = :brown, linestyle = :dot, linewidth = 1)
+    resize_to_layout!(fig)
+    display(fig)
+    save("pretty_things/" * label * "_joint-hists.png", fig)
 
 end
 
 function N²(label)  # Plot average N² vs. time
     
+    f = 1e-4
     filename_y_mean = "raw_data/" * label * "_BI_y-avg.jld2"
     file = jldopen(filename_y_mean)
     iterations = parse.(Int, keys(file["timeseries/t"]))
     t = [file["timeseries/t/$iter"] for iter in iterations]
     avg_N² = [mean(file["timeseries/b̅/$iter"][:, 1, 1] - file["timeseries/b̅/$iter"][:, 1, 64])/50 for iter in iterations]
-    lines(t, avg_N²)
+    lines(f*t, avg_N²)
 
 end

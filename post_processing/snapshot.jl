@@ -151,7 +151,7 @@ function snap_δ_xy(label, frac)
 
 end=#
 
-function snap_pic(label, ft, b_range, ζ_on_f_range, δ_on_f_range)
+function snap_pic(label, ft, b_range, ζ_on_f_range, δ_on_f_range; x_labels = false, name = "none")
 
     # Set the two dimensional parameters
     H = 50    # Depth of mixed layer
@@ -177,14 +177,28 @@ function snap_pic(label, ft, b_range, ζ_on_f_range, δ_on_f_range)
     b = file["timeseries/b/$iter"][:,:,1]
     ζ = file["timeseries/ζ/$iter"][:,:,1]
     δ = file["timeseries/δ/$iter"][:,:,1]
+    filename_drifters = "raw_data/" * label * "_particles.jld2"
+    file_drifters = jldopen(filename_drifters)
+    drifters_x = file_drifters["timeseries/particles/$iter"].x
+    drifters_y = file_drifters["timeseries/particles/$iter"].y
 
     fig = Figure()
-    ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b", width = 250, height = 250)
-    ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f", width = 250, height = 250)
-    ax_δ = Axis(fig[1, 3][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Horizontal divergence, }\delta/f", width = 250, height = 250)
+    if x_labels
+        ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b", width = 250, height = 250)
+        ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f", width = 250, height = 250)
+        ax_δ = Axis(fig[1, 3][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Horizontal divergence, }\delta/f", width = 250, height = 250)
+    else
+        ax_b = Axis(fig[1, 1][1, 1], ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b", width = 250, height = 250)
+        ax_ζ = Axis(fig[1, 2][1, 1], title = L"\text{Vertical vorticity, }\zeta/f", width = 250, height = 250)
+        ax_δ = Axis(fig[1, 3][1, 1], title = L"\text{Horizontal divergence, }\delta/f", width = 250, height = 250)
+    end
     hm_b = heatmap!(ax_b, x/1kilometer, y/1kilometer, b; colorrange = b_range)
     hm_ζ = heatmap!(ax_ζ, x/1kilometer, y/1kilometer, ζ/f; colormap = :coolwarm, colorrange = ζ_on_f_range)
     hm_δ = heatmap!(ax_δ, x/1kilometer, y/1kilometer, δ/f; colormap = :coolwarm, colorrange = δ_on_f_range)
+    scatter!(ax_b, drifters_x/1kilometer, drifters_y/1kilometer, marker = '.', markersize = 20, color = :black)
+    scatter!(ax_ζ, drifters_x/1kilometer, drifters_y/1kilometer, marker = '.', markersize = 20, color = :black)
+    scatter!(ax_δ, drifters_x/1kilometer, drifters_y/1kilometer, marker = '.', markersize = 20, color = :black)
+    
     Colorbar(fig[1, 1][1, 2], hm_b)
     Colorbar(fig[1, 2][1, 2], hm_ζ)
     Colorbar(fig[1, 3][1, 2], hm_δ)
@@ -192,7 +206,9 @@ function snap_pic(label, ft, b_range, ζ_on_f_range, δ_on_f_range)
 
     resize_to_layout!(fig)
     display(fig)
-    #save("pretty_things/" * "ζ-snap.pdf", fig)
+    if name ≠ "none"
+        save("pretty_things/" * name * ".png", fig)
+    end
 
 end
 
@@ -212,8 +228,9 @@ function per(i,N)
     mod(i-1, N) + 1
 end
 
-function snap_fdetect(label, frac, ∇b_scale = 5e-6, L_scale = 8000)
+function snap_fdetect(label, ft, ∇b_scale = 5e-6, L_scale = 8000)
 
+    f = 1e-4
     filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
 
     # Read in the first iteration. We do this to load the grid
@@ -221,7 +238,7 @@ function snap_fdetect(label, frac, ∇b_scale = 5e-6, L_scale = 8000)
 
     # Load in co-ordinate arrays
     # We do this separately for each variable since Oceananigans uses a staggered grid
-    xb, yb, zb = nodes(b_ic)
+    xb, yb, ~ = nodes(b_ic)
     M = length(xb)
     N = length(yb)
     Δx = xb[2] - xb[1]
@@ -232,13 +249,14 @@ function snap_fdetect(label, frac, ∇b_scale = 5e-6, L_scale = 8000)
     # Now, open the file with our data
     file = jldopen(filename_xy_top)
     iterations = parse.(Int, keys(file["timeseries/t"]))
-    iterations_animated = iterations[Int64(round(length(iterations)*0.5)) : length(iterations)]
-    iter = iterations_animated[Int(round(frac*length(iterations)))]
+    ts = [file["timeseries/t/$iter"] for iter in iterations]
+    iter = iterations[argmin(abs.(ts .- ft/f))]
 
     frames = 1:length(iterations)
     front_highlight = OffsetArrays.no_offset_view(zeros(frames, M, N))
     front_diagnose = OffsetArrays.no_offset_view(zeros(frames, M, N))
 
+    b = file["timeseries/b/$iter"][:, :, 1]
     b_x = file["timeseries/b_x/$iter"][:, :, 1]
     b_y = file["timeseries/b_y/$iter"][:, :, 1]
     abs∇b = [(x < 1e-4 ? x : 0) for x in (b_x.^2 + b_y.^2) .^ 0.5]
@@ -255,12 +273,16 @@ function snap_fdetect(label, frac, ∇b_scale = 5e-6, L_scale = 8000)
     𝒻 = abs_filt∇b ./ filt_abs∇b
     front_diagnose = 𝒻 .* front_filter
 
-    fig = Figure(resolution = (440, 440))
-    ax_∇b = Axis(fig[1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\mathcal{F}", aspect = 1)
-    hm = heatmap!(ax_∇b, xb/1kilometer, yb/1kilometer, front_diagnose; colorrange = (0, 1));
-    Colorbar(fig[1, 2], hm)
+    fig = Figure()
+    ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b", width = 250, height = 250)
+    hm_b = heatmap!(ax_b, xb/1kilometer, yb/1kilometer, b; colorrange = (minimum(b), maximum(b)))
+    ax_∇b = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\mathcal{F}", width = 250, height = 250)
+    hm_∇b = heatmap!(ax_∇b, xb/1kilometer, yb/1kilometer, front_diagnose; colorrange = (0, 1), colormap = :thermal)
+    Colorbar(fig[1, 1][1, 2], hm_b, height = 250)
+    Colorbar(fig[1, 2][1, 2], hm_∇b, height = 250)
 
+    resize_to_layout!(fig)
     display(fig)
-    save("pretty_things/" * "fedetect-snap.pdf", fig)
+    save("pretty_things/" * "fdetect-snap.png", fig)
     
 end

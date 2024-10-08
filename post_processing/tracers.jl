@@ -298,13 +298,15 @@ function all_traj_ζ_δ_plot(label::String)           # Take the data from ζ_δ
     data = topdata(label)
     drifters = extract_tracers(label)
     trajectories = []
-    for drifter in drifters
+    for drifter in drifters[1:11:end]
         [push!(trajectories, traj) for traj in ζ_δ_trajectories(data, drifter)]
     end
 
     fig = Figure()
-    ax = Axis(fig[1, 1], xlabel = L"\zeta/f", ylabel = L"\delta/f")
+    ax = Axis(fig[1, 1], xlabel = L"\zeta/f", ylabel = L"\delta/f", limits = (-10, 130, -55, 5), width = 560, height = 240)
     [lines!(ax, traj.ζ/f, traj.δ/f, color = traj.t_rel, colormap = :coolwarm, colorrange = (-1.0,1.0)) for traj in trajectories]
+    resize_to_layout!(fig)
     display(fig)
+    save("pretty_things/lagr_phase_trajs.png", fig)
 
 end
