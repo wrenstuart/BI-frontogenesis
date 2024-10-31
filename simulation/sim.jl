@@ -57,6 +57,8 @@ struct MyParticle
     v_x::Float64
     u_z::Float64
     v_z::Float64
+    w_x::Float64
+    w_y::Float64
 
     fζ_g::Float64
 
@@ -82,6 +84,9 @@ function run_sim(params, label)
     # Set the time-stepping parameters
     max_Δt = 0.4 * pi / (phys_params.N²^0.5)
     duration = 20 / real(least_stable_mode(params.Ri, 4π/domain.x, 0, rate_only = true))
+    if params.short_duration
+        duration = duration / 20
+    end
 
     # Build the grid
     if params.GPU
@@ -108,7 +113,7 @@ function run_sim(params, label)
         x₀, y₀ = CuArray.([x₀, y₀])
     end
     O = params.GPU ? () -> CuArray(zeros(n^2)) : () -> zeros(n^2)
-    particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
+    particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
 
     # Extract fundamental variable fields:
     velocities = VelocityFields(grid)
@@ -129,6 +134,8 @@ function run_sim(params, label)
     M²_on_f = phys_params.M²/f
     u_z = ∂z(u) - M²_on_f
     v_z = ∂z(v)
+    w_x = ∂x(w)
+    w_y = ∂y(w)
     b_x = ∂x(b)
     b_y = ∂y(b) + phys_params.M²
     b_z = ∂z(b)
@@ -163,7 +170,8 @@ function run_sim(params, label)
     V_mix_u = b#params.ν_v * (u_x*∂z(∂z(u_x)) + u_y*∂z(∂z(u_y)) + v_x*∂z(∂z(v_x)) + v_y*∂z(∂z(v_y)))
     H_dif_u = b#params.ν_h * (u_x*∇ₕ²(u_x) + u_y*∇ₕ²(u_y) + v_x*∇ₕ²(v_x) + v_y*∇ₕ²(v_y))=#
 
-    tracked_fields = (; ζ, δ, b_x, b_y, b_z, u_x, v_x, u_z, v_z, ∇ₕ²ζ, ζ_zz, ∇ₕ²δ, δ_zz, fζ_g, b_xzz, b_yzz)
+    tracked_fields = (; ζ, δ, b_x, b_y, b_z, u_x, v_x, u_z, v_z, w_x, w_y, ∇ₕ²ζ, ζ_zz, ∇ₕ²δ, δ_zz, fζ_g, b_xzz, b_yzz)
+    
     lagrangian_drifters = LagrangianParticles(particles; tracked_fields = tracked_fields)          
 
     # "Remember to use CuArray instead of regular Array when storing particle locations and properties on the GPU"?????
