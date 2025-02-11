@@ -108,14 +108,63 @@ function lagr_track(data::FileData, var_to_track::Tuple{Function, Vector{String}
     iterations = parse.(Int, keys(data.file["timeseries/t"]))
     t = [data.file["timeseries/t/$iter"] for iter in iterations]
     output = zeros(Float64, length(iterations))
+    function convert_index(i)
+        # Convert from topdata index (outputted less frequently)
+        # to particle-tracked index
+        return (i-1) * (length(drifter) - 1)/(length(iterations) - 1) + 1
+    end
     for (i, iter) in enumerate(iterations)
         t[i] = data.file["timeseries/t/$iter"]
-        x, y = drifter[i]
-        input = [grid_nearest(data, var, x, y, iter) for var in input_labels]
+        j = convert_index(i)
+        j₋ = maximum([1, Int64(j ÷ 1)])
+        j₊ = minimum([length(drifter), j₋ + 1])
+        Δ = j % 1
+        x, y = (1-Δ) * drifter[j₋] + Δ * drifter[j₊]
+        input = [grid_interpolate(data, var, x, y, iter) for var in input_labels]
         output[i] = f(input)
     end
 
     return t, output
+
+end
+
+function lagr_track_new(label::String, data::FileData, var_to_track::Tuple{Function, Vector{String}}, drifter::Vector{Vector{Float64}})    # Tracks a variable along a drifter's path, returns time and drifter as vectors
+    
+    # Tracks the value of the function var_to_track[1] on variables with labels given by var_to_track[2]
+    # along the trajectory of drifter
+    
+    f, input_labels = var_to_track
+    iterations = parse.(Int, keys(data.file["timeseries/t"]))
+    t = [data.file["timeseries/t/$iter"] for iter in iterations]
+    output = zeros(Float64, length(iterations))
+    file_drifter = jldopen("raw_data/" * label * "_particles-rearranged.jld2")
+    t_drifter = file_drifter["t"]
+    for (i, iter) in enumerate(iterations)
+        t[i] = data.file["timeseries/t/$iter"]
+        j₊ = argmax([t[i] > t_ ? minimum(t[i] .- t_drifter) : t[i]-t_ for t_ in t_drifter])
+        j₋ = argmax([t[i] > t_ ? t_-t[i] : minimum(t_drifter .- t[i]) for t_ in t_drifter])
+        t₋ = t_drifter[j₋]
+        t₊ = t_drifter[j₊]
+        if j₋ == j₊
+            Δ = 1
+        else
+            Δ = (t[i] - t₋)/(t₊-t₋)
+        end
+        x, y = (1-Δ) * drifter[j₋] + Δ * drifter[j₊]
+        @info j₋, j₊, Δ
+        input = [grid_interpolate(data, var, x, y, iter) for var in input_labels]
+        output[i] = f(input)
+    end
+
+    return t, output
+
+end
+
+function lagr_track_new(label::String, data::FileData, var_to_track::String, drifter::Vector{Vector{Float64}}) # Tracks a variable along a drifter's path, returns time and drifter as vectors
+
+    # Track the value of the variable with label var_to_track
+
+    return lagr_track_new(label, data, (x -> x[1], [var_to_track]), drifter)
 
 end
 

@@ -1,8 +1,9 @@
 # Functions for running an individual simulation
 
-using Oceananigans
 using Printf
+using Oceananigans
 using Oceananigans.TurbulenceClosures
+using Oceananigans.Operators
 using CUDA
 
 using StructArrays
@@ -35,6 +36,8 @@ function physical_quantities_from_inputs(Ri, s)
     u_bcs = FieldBoundaryConditions(top = GradientBoundaryCondition(0.0),
                                     bottom = GradientBoundaryCondition(0.0))
     # This is applied to the perturbation u, not including the background U₀
+    # I think this is not strictly necessary, as that is the default boundary
+    # condition for the velocity field, but it is good to be explicit
     BCs = (u = u_bcs,)
 
     return p, (x = Lx, y = Ly, z = Lz), (u = uᵢ, v = vᵢ, w = wᵢ, b = bᵢ), (U = U₀, B = B₀), BCs
@@ -47,28 +50,19 @@ struct MyParticle
     y::Float64
     z::Float64
 
-    # Gradient terms
     ζ::Float64
     δ::Float64
-    b_x::Float64
-    b_y::Float64
-    b_z::Float64
     u_x::Float64
     v_x::Float64
-    u_z::Float64
-    v_z::Float64
-    w_x::Float64
-    w_y::Float64
-
+    b_x::Float64
+    b_y::Float64
+    ζ_zz::Float64
+    δ_zz::Float64
+    ∇ₕ²ζ::Float64
+    ∇ₕ²δ::Float64
     fζ_g::Float64
-
-    # Mixing terms
     b_xzz::Float64
     b_yzz::Float64
-    ∇ₕ²ζ::Float64
-    ζ_zz::Float64
-    ∇ₕ²δ::Float64
-    δ_zz::Float64
 
 end
 
@@ -113,7 +107,17 @@ function run_sim(params, label)
         x₀, y₀ = CuArray.([x₀, y₀])
     end
     O = params.GPU ? () -> CuArray(zeros(n^2)) : () -> zeros(n^2)
-    particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
+    particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
+
+    #=@inline δ²zᵃᵃᶠ_top(i, j, k, grid, u) = @inbounds (3u[i, j, k] - 7u[i, j, k-1] + 5u[i, j, k-2] - u[i, j, k-3]) / 2
+    @inline ∂²zᵃᵃᶠ_top(i, j, k, grid, u) = @inbounds δ²zᵃᵃᶠ(i, j, k, grid, u) / Δzᶠᶠᶜ(i, j, k, grid)^2=#
+
+    @inline function ∂²zᵃᵃᶠ_top(i, j, k, grid, u)
+        δz² = Δzᶠᶠᶜ(i, j, k, grid)^2
+        δ²u = (3u[i, j, k] - 7u[i, j, k-1] + 5u[i, j, k-2] - u[i, j, k-3]) / 2
+        return δ²u/δz²
+    end
+    ∇ₕ²(𝑓) = ∂x(∂x(𝑓)) + ∂y(∂y(𝑓))
 
     # Extract fundamental variable fields:
     velocities = VelocityFields(grid)
@@ -126,55 +130,38 @@ function run_sim(params, label)
     # Intermediary terms:
     p = pHY′ + pNHS
     u_y = ∂y(u)
-    w_z = ∂z(w)
+    v_y = ∂y(v)
 
-    # To store as auxillary fields:
+    # To store as auxiliary fields
     u_x = ∂x(u)
     v_x = ∂x(v)
     M²_on_f = phys_params.M²/f
-    u_z = ∂z(u) - M²_on_f
-    v_z = ∂z(v)
-    w_x = ∂x(w)
-    w_y = ∂y(w)
+    u_z = ∂z(u) - M²_on_f   # These five
+    v_z = ∂z(v)             # vanish or are
+    w_x = ∂x(w)             # constant at the
+    w_y = ∂y(w)             # boundaries, but not
+    b_z = ∂z(b)             # in the interior
     b_x = ∂x(b)
     b_y = ∂y(b) + phys_params.M²
-    b_z = ∂z(b)
     ζ = v_x - u_y
-    δ = -w_z
-
-    ∇ₕ²(𝑓) = ∂x(∂x(𝑓)) + ∂y(∂y(𝑓))
-    ζ_zz = ∂z(∂z(ζ))
+    δ = u_x + v_y
     ∇ₕ²ζ = ∇ₕ²(ζ)
-    δ_zz = ∂z(∂z(δ))
     ∇ₕ²δ = ∇ₕ²(δ)
     fζ_g = ∇ₕ²(p)
-    b_xzz = ∂z(∂z(b_x))
-    b_yzz = ∂z(∂z(b_y))
-
-    #=∇ₕ²(𝑓) = ∂x(∂x(𝑓)) + ∂y(∂y(𝑓))
-    F_hor_ζ = -δ * ζ
-    F_cor_ζ = -f * δ
-    F_ver_ζ = u_z * w_y - v_z * w_x
-    V_mix_ζ = b#params.ν_v * ∂z(∂z(ζ))
-    H_dif_ζ = b#params.ν_h * ∇ₕ²(ζ)
-    F_hor_δ = -(u_x*u_x + 2u_y*v_x + v_y*v_y)
-    F_hor_δ_approx = -δ^2
-    F_cor_δ = f * ζ
-    F_ver_δ = -(u_z*w_x + v_z*w_y)
-    F_prs_δ = -f * ζ_g
-    V_mix_δ = b#params.ν_v * ∂z(∂z(δ))
-    H_dif_δ = b#params.ν_h * ∇ₕ²(δ)
-    # Might not need these, but just in case:
-    V_mix_b = b#params.ν_v * (b_x*∂z(∂z(b_x)) + b_y*∂z(∂z(b_y)))
-    H_dif_b = b#params.ν_h * (b_x*∇ₕ²(b_x) + b_y*∇ₕ²(b_y))
-    V_mix_u = b#params.ν_v * (u_x*∂z(∂z(u_x)) + u_y*∂z(∂z(u_y)) + v_x*∂z(∂z(v_x)) + v_y*∂z(∂z(v_y)))
-    H_dif_u = b#params.ν_h * (u_x*∇ₕ²(u_x) + u_y*∇ₕ²(u_y) + v_x*∇ₕ²(v_x) + v_y*∇ₕ²(v_y))=#
-
-    tracked_fields = (; ζ, δ, b_x, b_y, b_z, u_x, v_x, u_z, v_z, w_x, w_y, ∇ₕ²ζ, ζ_zz, ∇ₕ²δ, δ_zz, fζ_g, b_xzz, b_yzz)
+    ζ_zz_op = KernelFunctionOperation{Face, Face, Face}(∂²zᵃᵃᶠ_top, grid, ζ)
+    δ_zz_op = KernelFunctionOperation{Center, Center, Face}(∂²zᵃᵃᶠ_top, grid, δ)
+    b_xzz_op = KernelFunctionOperation{Face, Center, Face}(∂²zᵃᵃᶠ_top, grid, b_x)
+    b_yzz_op = KernelFunctionOperation{Center, Face, Face}(∂²zᵃᵃᶠ_top, grid, b_y)
+    ζ_zz = Field(ζ_zz_op)
+    δ_zz = Field(δ_zz_op)
+    b_xzz = Field(b_xzz_op)
+    b_yzz = Field(b_yzz_op)
     
-    lagrangian_drifters = LagrangianParticles(particles; tracked_fields = tracked_fields)          
+    auxiliary_fields = (; ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, ζ_zz, δ_zz, ∇ₕ²ζ, ∇ₕ²δ, fζ_g, b_xzz, b_yzz)
+    drifter_fields = (; ζ, δ, u_x, v_x, b_x, b_y, ζ_zz, δ_zz, ∇ₕ²ζ, ∇ₕ²δ, fζ_g, b_xzz, b_yzz)
+    lagrangian_drifters = LagrangianParticles(particles; tracked_fields = drifter_fields)
 
-    # "Remember to use CuArray instead of regular Array when storing particle locations and properties on the GPU"?????
+    # Remember to use CuArray instead of regular Array when storing particle locations and properties on the GPU?????
 
     # Build the model
     model = NonhydrostaticModel(; grid,
@@ -182,7 +169,7 @@ function run_sim(params, label)
               timestepper = :RungeKutta3, # Set the timestepping scheme, here 3rd order Runge-Kutta
               tracers = tracers,  # Set the name(s) of any tracers; here, b is buoyancy
               velocities = velocities,
-              auxiliary_fields = tracked_fields,
+              auxiliary_fields = auxiliary_fields,
               pressures = (; pHY′, pNHS),
               buoyancy = Buoyancy(model = BuoyancyTracer()), # this tells the model that b will act as the buoyancy (and influence momentum)
               background_fields = (b = B_field, u = U_field),
@@ -211,7 +198,7 @@ function run_sim(params, label)
     simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(1))
 
     # ### A progress messenger
-    # We add a callback that prints out a helpful progress message while the simulation runs.
+    # We add a callback that prints out a helpful bprogress message while the simulation runs.
 
     start_time = time_ns()
 
@@ -232,20 +219,6 @@ function run_sim(params, label)
     b = Field(model.tracers.b + model.background_fields.tracers.b)          # Extract the buoyancy and add the background field
     b_pert = Field(model.tracers.b)
     p = Field(model.pressures.pNHS + model.pressures.pHY′)
-    ζ = Field(model.auxiliary_fields.ζ)
-    δ = Field(model.auxiliary_fields.δ)
-    u_x = Field(model.auxiliary_fields.u_x)
-    v_x = Field(model.auxiliary_fields.v_x)
-    u_z = Field(model.auxiliary_fields.u_z)
-    v_z = Field(model.auxiliary_fields.v_z)
-    w_x = Field(∂x(w))
-    w_y = Field(∂y(w))
-    fu_g = Field(-∂y(p))
-    fv_g = Field(∂x(p))
-    fζ_g = Field(model.auxiliary_fields.fζ_g)
-    b_x = Field(model.auxiliary_fields.b_x)
-    b_y = Field(model.auxiliary_fields.b_y)
-    b_z = Field(model.auxiliary_fields.b_z)
 
     # Compute y-averages 𝐮̅(x,z) and b̅(x,z)
     u̅ = Field(Average(u, dims = 2))
@@ -266,7 +239,7 @@ function run_sim(params, label)
     # Output the slice y = 0
     filename = "raw_data/" * label * "_BI_xz"
     simulation.output_writers[:xz_slices] =
-        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, fu_g, fv_g, fζ_g),
+        JLD2OutputWriter(model, (; u, v, w, b),
                                 filename = filename * ".jld2",
                                 indices = (:, 1, :),
                                 schedule = TimeInterval(phys_params.T/20),
@@ -275,7 +248,7 @@ function run_sim(params, label)
     # Output the slice z = 0
     filename = "raw_data/" * label * "_BI_xy"
     simulation.output_writers[:xy_slices] =
-        JLD2OutputWriter(model, (; u, v, w, b, p, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, fu_g, fv_g, fζ_g),
+        JLD2OutputWriter(model, (; u, v, w, b),
                                 filename = filename * ".jld2",
                                 indices = (:, :, resolution[3]),
                                 schedule = TimeInterval(phys_params.T/20),
@@ -284,7 +257,7 @@ function run_sim(params, label)
     # Output the slice x = 0
     filename = "raw_data/" * label * "_BI_yz"
     simulation.output_writers[:yz_slices] =
-        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, fu_g, fv_g, fζ_g),
+        JLD2OutputWriter(model, (; u, v, w, b),
                                 filename = filename * ".jld2",
                                 indices = (1, :, :),
                                 schedule = TimeInterval(phys_params.T/20),
@@ -293,7 +266,7 @@ function run_sim(params, label)
     # Output a horizontal slice in the middle (verticall speaking)
     filename = "raw_data/" * label * "_BI_xy_mid"
     simulation.output_writers[:xy_slices_mid] =
-        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, fu_g, fv_g, fζ_g),
+        JLD2OutputWriter(model, (; u, v, w, b),
                                 filename = filename * ".jld2",
                                 indices = (:, :, Int64(round((resolution[3]+1) / 2))),
                                 schedule = TimeInterval(phys_params.T/20),
