@@ -96,14 +96,14 @@ function generate_ic(Ri, L, U; N = 100, H = 50)
     v_modes = []
     w_modes = []
     b_modes = []
-    ~, ~, ~, ~, σ₀ = least_stable_mode(Ri, 4π/L, 0, N = N)
+    # ~, ~, ~, ~, σ₀ = least_stable_mode(Ri, 4π/L, 0, N = N)
     for i = 0:10, j = 0:10
         if !(i == 0 && j == 0)
             k = i * 2π/L
             l = j * 2π/L
             û, v̂, ŵ, b̂, σ = least_stable_mode(Ri, k, l, N = N)
-            # A = U * ((i==2 && j==0) ? 0.01 : 0.0002 * rand() * exp(2π*im*rand()))
-            A = U * 0.01 * 100^(σ/σ₀ - 1) * exp(2π*im*rand())
+            A = U * ((i==2 && j==0) ? 0.01 : 0.0002 * rand() * exp(2π*im*rand())) * 0.05
+            # A = U * 0.01 * 100^(σ/σ₀ - 1) * exp(2π*im*rand())
             push!(u_modes, ((k, l), A * û))
             push!(v_modes, ((k, l), A * v̂))
             push!(w_modes, ((k, l), A * ŵ))

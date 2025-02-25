@@ -57,12 +57,20 @@ struct MyParticle
     b_x::Float64
     b_y::Float64
     ζ_zz::Float64
+    my_ζ_zz::Float64
+    my_δ_zz::Float64
     δ_zz::Float64
     ∇ₕ²ζ::Float64
     ∇ₕ²δ::Float64
     fζ_g::Float64
     b_xzz::Float64
     b_yzz::Float64
+    u_z::Float64
+    v_z::Float64
+    w::Float64
+    ζ_z::Float64
+    w_x::Float64
+    w_y::Float64
 
 end
 
@@ -102,12 +110,12 @@ function run_sim(params, label)
     # Introduce Lagrangian particles in an n × n grid
     n = 20
     x₀ = [domain.x * (i % n) / n for i = 0 : n^2-1]
-    y₀ = [domain.y * (i ÷ n) / n for i = 0: n^2-1]
+    y₀ = [domain.y * (i ÷ n) / n for i = 0 : n^2-1]
     if params.GPU
         x₀, y₀ = CuArray.([x₀, y₀])
     end
     O = params.GPU ? () -> CuArray(zeros(n^2)) : () -> zeros(n^2)
-    particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
+    particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
 
     #=@inline δ²zᵃᵃᶠ_top(i, j, k, grid, u) = @inbounds (3u[i, j, k] - 7u[i, j, k-1] + 5u[i, j, k-2] - u[i, j, k-3]) / 2
     @inline ∂²zᵃᵃᶠ_top(i, j, k, grid, u) = @inbounds δ²zᵃᵃᶠ(i, j, k, grid, u) / Δzᶠᶠᶜ(i, j, k, grid)^2=#
@@ -144,22 +152,32 @@ function run_sim(params, label)
     b_x = ∂x(b)
     b_y = ∂y(b) + phys_params.M²
     ζ = v_x - u_y
+    ζ_z = ∂z(ζ)
     δ = u_x + v_y
     ∇ₕ²ζ = ∇ₕ²(ζ)
     ∇ₕ²δ = ∇ₕ²(δ)
+    ζ_zz = ∂z(∂z(ζ))
+    δ_zz = ∂z(∂z(δ))
     fζ_g = ∇ₕ²(p)
     ζ_zz_op = KernelFunctionOperation{Face, Face, Face}(∂²zᵃᵃᶠ_top, grid, ζ)
     δ_zz_op = KernelFunctionOperation{Center, Center, Face}(∂²zᵃᵃᶠ_top, grid, δ)
     b_xzz_op = KernelFunctionOperation{Face, Center, Face}(∂²zᵃᵃᶠ_top, grid, b_x)
     b_yzz_op = KernelFunctionOperation{Center, Face, Face}(∂²zᵃᵃᶠ_top, grid, b_y)
-    ζ_zz = Field(ζ_zz_op)
-    δ_zz = Field(δ_zz_op)
+    my_ζ_zz = Field(ζ_zz_op)
+    my_δ_zz = Field(δ_zz_op)
     b_xzz = Field(b_xzz_op)
     b_yzz = Field(b_yzz_op)
     
-    auxiliary_fields = (; ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, ζ_zz, δ_zz, ∇ₕ²ζ, ∇ₕ²δ, fζ_g, b_xzz, b_yzz)
-    drifter_fields = (; ζ, δ, u_x, v_x, b_x, b_y, ζ_zz, δ_zz, ∇ₕ²ζ, ∇ₕ²δ, fζ_g, b_xzz, b_yzz)
-    lagrangian_drifters = LagrangianParticles(particles; tracked_fields = drifter_fields)
+    auxiliary_fields = (; ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, ζ_zz, δ_zz, ∇ₕ²ζ, ∇ₕ²δ, fζ_g, b_xzz, b_yzz, my_ζ_zz, my_δ_zz, ζ_z)
+    drifter_fields = (; ζ, δ, u_x, v_x, b_x, b_y, ζ_zz, δ_zz, ∇ₕ²ζ, ∇ₕ²δ, fζ_g, b_xzz, b_yzz, my_ζ_zz, my_δ_zz, u_z, v_z, w, ζ_z, w_x, w_y)
+    function fix_particle_below_surface(lagrangian_particles, model, Δt)
+        lagrangian_particles.properties.z .= -3domain.z / 2resolution[3]
+    end
+    if params.fix_drifters_below_surface
+        lagrangian_drifters = LagrangianParticles(particles; tracked_fields = drifter_fields, dynamics = fix_particle_below_surface)
+    else
+        lagrangian_drifters = LagrangianParticles(particles; tracked_fields = drifter_fields)
+    end
 
     # Remember to use CuArray instead of regular Array when storing particle locations and properties on the GPU?????
 
@@ -239,7 +257,7 @@ function run_sim(params, label)
     # Output the slice y = 0
     filename = "raw_data/" * label * "_BI_xz"
     simulation.output_writers[:xz_slices] =
-        JLD2OutputWriter(model, (; u, v, w, b),
+        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, fζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, 1, :),
                                 schedule = TimeInterval(phys_params.T/20),
@@ -248,7 +266,7 @@ function run_sim(params, label)
     # Output the slice z = 0
     filename = "raw_data/" * label * "_BI_xy"
     simulation.output_writers[:xy_slices] =
-        JLD2OutputWriter(model, (; u, v, w, b),
+        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, fζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, :, resolution[3]),
                                 schedule = TimeInterval(phys_params.T/20),
@@ -257,7 +275,7 @@ function run_sim(params, label)
     # Output the slice x = 0
     filename = "raw_data/" * label * "_BI_yz"
     simulation.output_writers[:yz_slices] =
-        JLD2OutputWriter(model, (; u, v, w, b),
+        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, fζ_g),
                                 filename = filename * ".jld2",
                                 indices = (1, :, :),
                                 schedule = TimeInterval(phys_params.T/20),
@@ -266,7 +284,7 @@ function run_sim(params, label)
     # Output a horizontal slice in the middle (verticall speaking)
     filename = "raw_data/" * label * "_BI_xy_mid"
     simulation.output_writers[:xy_slices_mid] =
-        JLD2OutputWriter(model, (; u, v, w, b),
+        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, fζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, :, Int64(round((resolution[3]+1) / 2))),
                                 schedule = TimeInterval(phys_params.T/20),

@@ -1,5 +1,6 @@
 using CairoMakie
 using Oceananigans
+using Oceananigans.Units
 using JLD2
 using Printf
 using Colors
@@ -47,7 +48,7 @@ function get_drifter_data(label)
     return t, drifters
 end
 
-label = "testlongreal"
+label = "submergeddrifters3"
 t, drifters = get_drifter_data(label)
 
 f = 1e-4
@@ -62,6 +63,7 @@ F_vrt_ζ(d) = d.w_y * d.u_z - d.w_x * d.v_z
 F_Cor_ζ(d) = -f * d.δ
 H_mix_ζ(d) = νₕ * d.∇ₕ²ζ
 V_mix_ζ(d) = νᵥ * d.ζ_zz
+vert_adv_ζ(d) = -d.w * d.ζ_z
 
 F_hor_δ(d) = -(d.u_x ^ 2 + 2 * d.v_x * u_y(d) + v_y(d) ^ 2)
 F_vrt_δ(d) = -(d.w_x * d.u_z + d.w_y * d.v_z)
@@ -138,10 +140,6 @@ function ζ_δ_trajectories(drifter)
 
     return trajectories
 
-end
-
-function ()
-    
 end
 
 function ζ_δ_arrow_map(drifters, ζ_grid = -2:0.5:20, δ_grid = -10:0.5:5)#ζ_grid = -5:0.5:49, δ_grid = -49:0.5:5)
@@ -254,28 +252,31 @@ function plot_ζ_balance(drifter, section)
     ax = Axis(fig[1, 1])
     #ylims!(ax, (-2e-7, 2e-7))
     F_hor = F_hor_ζ.(drifter[s])*δ_mult*other_mult
-    F_vrt = 0 * F_hor_ζ.(drifter[s])          # Due to no-penetration condition
+    F_vrt = F_vrt_ζ.(drifter[s])*δ_mult*other_mult
     F_Cor = F_Cor_ζ.(drifter[s])*δ_mult
     H_mix = H_mix_ζ.(drifter[s])*other_mult
     V_mix = V_mix_ζ.(drifter[s])*other_mult
+    vert_adv = vert_adv_ζ.(drifter[s])
     if length(ft) > 5
         ft = ft[3:end-2]
         Dₜζ = smooth_timeseries(Dₜζ)
         F_hor = smooth_timeseries(F_hor)
+        F_vrt = smooth_timeseries(F_vrt)
         F_Cor = smooth_timeseries(F_Cor)
         H_mix = smooth_timeseries(H_mix)
         V_mix = smooth_timeseries(V_mix)
+        vert_adv = smooth_timeseries(vert_adv)
     end
     lines!(ax, ft, F_hor, label = "horizontal")
     lines!(ax, ft, F_Cor, label = "Coriolis")
     lines!(ax, ft, H_mix, label = "hor. mixing")
     lines!(ax, ft, V_mix, label = "vert. mixing")
-    lines!(ax, ft, Dₜζ - (F_hor + F_Cor + H_mix + V_mix), label = "discrepancy", color = :black, linestyle = :dot)
+    lines!(ax, ft, vert_adv, label = "vert. adv.")
+    lines!(ax, ft, Dₜζ - (F_hor + F_vrt + F_Cor + H_mix + V_mix + vert_adv), label = "discrepancy", color = :black, linestyle = :dot)
     lines!(ax, ft, Dₜζ, label = L"D\zeta/Dt", color = :black)
     axislegend()
     display(fig)
 end
-
 
 function ζ_δ(drifter, section)
     s = section
@@ -324,7 +325,7 @@ end
 
 end=#
 
-function plot_δ_balance(drifter, section)
+function plot_δ_balance(drifter, section)       # needs fixing!!!! iterations and t don't line up
     s = section
     Δt = t[s[2]] - t[s[1]]
     ft = f * t[s]
@@ -354,6 +355,149 @@ function plot_δ_balance(drifter, section)
     lines!(ax, ft, Dₜδ, label = L"D\delta/Dt", color = :black)
     axislegend(position = :lb)
     display(fig)
+end
+
+function animate_drifter_balance(drifter, section)
+
+    fig = Figure(size = (950, 950))
+    frame = Observable(1)
+
+    if length(section) < 5
+        return
+    end
+    s = section
+    Δt = t[s[2]] - t[s[1]]
+    ft = f * t[s]
+    Dₜζ = [(drifter[i+1].ζ - drifter[i-1].ζ) / (2Δt) for i in s]*other_mult
+    Dₜδ = [(drifter[i+1].δ - drifter[i-1].δ) / (2Δt) for i in s]*δ_mult
+    x = [drifter[i].x for i in s]
+    y = [drifter[i].y for i in s]
+    Fζ_hor = F_hor_ζ.(drifter[s])*δ_mult*other_mult
+    Fζ_vrt = 0 * F_hor_ζ.(drifter[s])          # Due to no-penetration condition
+    Fζ_Cor = F_Cor_ζ.(drifter[s])*δ_mult
+    Hζ_mix = H_mix_ζ.(drifter[s])*other_mult
+    Vζ_mix = V_mix_ζ.(drifter[s])*other_mult
+    Fδ_hor = F_hor_δ.(drifter[s])*δ_mult^2
+    Fδ_Cor = F_Cor_δ.(drifter[s])*other_mult
+    Fδ_prs = F_prs_δ.(drifter[s])*other_mult
+    Hδ_mix = H_mix_δ.(drifter[s])*δ_mult
+    Vδ_mix = V_mix_δ.(drifter[s])*δ_mult
+
+    s = s[3:end-2]
+    ft = ft[3:end-2]
+    Dₜζ = smooth_timeseries(Dₜζ)
+    Dₜδ = smooth_timeseries(Dₜδ)
+    x = smooth_timeseries(x)
+    y = smooth_timeseries(y)
+    Fζ_hor = smooth_timeseries(Fζ_hor)
+    Fζ_Cor = smooth_timeseries(Fζ_Cor)
+    Hζ_mix = smooth_timeseries(Hζ_mix)
+    Vζ_mix = smooth_timeseries(Vζ_mix)
+    Fδ_hor = smooth_timeseries(Fδ_hor)
+    Fδ_Cor = smooth_timeseries(Fδ_Cor)
+    Fδ_prs = smooth_timeseries(Fδ_prs)
+    Hδ_mix = smooth_timeseries(Hδ_mix)
+    Vδ_mix = smooth_timeseries(Vδ_mix)
+
+    ft_obs = lift(i -> ft[i], frame)
+    x_obs = lift(i -> x[i], frame)
+    y_obs = lift(i -> y[i], frame)
+
+    fig = Figure()
+    ax_ζ = Axis(fig[2, 1:3], height = 200)
+    lines!(ax_ζ, ft, Fζ_hor, label = "horizontal")
+    lines!(ax_ζ, ft, Fζ_Cor, label = "Coriolis")
+    lines!(ax_ζ, ft, Hζ_mix, label = "hor. mixing")
+    lines!(ax_ζ, ft, Vζ_mix, label = "vert. mixing")
+    lines!(ax_ζ, ft, Dₜζ - (Fζ_hor + Fζ_Cor + Hζ_mix + Vζ_mix), label = "discrepancy", color = :black, linestyle = :dot)
+    lines!(ax_ζ, ft, Dₜζ, label = L"D\zeta/Dt", color = :black)
+    vlines!(ax_ζ, ft_obs, color = :black)
+    axislegend()
+
+    ax_δ = Axis(fig[3, 1:3], height = 200)
+    lines!(ax_δ, ft, Fδ_hor, label = "horizontal")
+    lines!(ax_δ, ft, Fδ_Cor, label = "Coriolis")
+    lines!(ax_δ, ft, Fδ_prs, label = "pressure")
+    lines!(ax_δ, ft, Hδ_mix, label = "hor. mixing")
+    lines!(ax_δ, ft, Vδ_mix, label = "vert. mixing")
+    lines!(ax_δ, ft, Dₜδ - (Fδ_hor + Fδ_Cor + Hδ_mix + Vδ_mix + Fδ_prs), label = "discrepancy", color = :black, linestyle = :dot)
+    lines!(ax_δ, ft, Dₜδ, label = L"D\delta/Dt", color = :black)
+    vlines!(ax_δ, ft_obs, color = :black)
+    axislegend(position = :lb)
+
+    display(fig)
+
+
+
+
+    filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
+
+    # Read in the first iteration. We do this to load the grid
+    b_ic = FieldTimeSeries(filename_xy_top, "b", iterations = 0)
+    ζ_ic = FieldTimeSeries(filename_xy_top, "ζ", iterations = 0)
+
+    # Load in co-ordinate arrays
+    # We do this separately for each variable since Oceananigans uses a staggered grid
+    xb, yb, ~ = nodes(b_ic)
+    xζ, yζ, ~ = nodes(ζ_ic)
+
+    # Now, open the file with our data
+    file = jldopen(filename_xy_top)
+    # Extract the values that iter can take
+    iterations = parse.(Int, keys(file["timeseries/t"]))
+
+    # Set up observables for plotting that will update as the iteration number is updated
+    iter = lift(i -> iterations[s[i]], frame)   # Timestep iteration
+    ζ_xy = lift(iter -> file["timeseries/ζ/$iter"][:, :, 1], iter) # Surface vertical vorticity at this iteration
+    ζ_on_f = lift(iter -> ζ_xy[]/f, iter)
+    δ = lift(iter -> file["timeseries/δ/$iter"][:, :, 1], iter)
+    δ_on_f = lift(iter -> file["timeseries/δ/$iter"][:, :, 1]/f, iter)
+    b_xy = lift(iter -> file["timeseries/b/$iter"][:, :, 1], iter)   # Surface buoyancy at this iteration
+
+    # Calculate the maximum relative vorticity and buoyancy flux to set the scale for the colourmap
+    ζ_max = 0
+    b_max = maximum(b_ic)
+
+    for i = Int(round(length(iterations)/10)) : length(iterations)
+        iter[] = iterations[i]
+        ζ_max = maximum([ζ_max, maximum(ζ_xy[])])
+    end
+
+    ζ_max = minimum([ζ_max, 20f])
+
+    @info "Drawing first frame"
+
+    # Create the plot, starting at t = 0
+    # This will be updated as the observable iter is updated
+    iter[] = 0
+    ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b", width = 200, height = 200)
+    ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f", width = 200, height = 200)
+    ax_δ = Axis(fig[1, 3][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Horizontal divergence, }\delta/f", width = 200, height = 200)
+    hm_b = heatmap!(ax_b, xb/1kilometer, yb/1kilometer, b_xy; colorrange = (-0.5*b_max, 1.5*b_max));
+    #scatter!(ax_b, x_obs, y_obs, marker = '.', markersize = 30, color = :black)
+    hm_ζ = heatmap!(ax_ζ, xζ/1kilometer, yζ/1kilometer, ζ_on_f; colormap = :coolwarm, colorrange = (-ζ_max/f, ζ_max/f));
+    #scatter!(ax_ζ, x_obs, y_obs, marker = '.', markersize = 30, color = :black, update_limits = false)
+    hm_δ = heatmap!(ax_δ, xζ/1kilometer, yζ/1kilometer, δ_on_f; colormap = :coolwarm, colorrange = (-ζ_max/f, ζ_max/f));
+    #scatter!(ax_δ, x_obs, y_obs, marker = '.', markersize = 30, color = :black)
+    Colorbar(fig[1, 1][1, 2], hm_b, height = 200)
+    Colorbar(fig[1, 2][1, 2], hm_ζ, height = 200)
+    Colorbar(fig[1, 3][1, 2], hm_δ, height = 200)
+    resize_to_layout!(fig)
+
+
+
+    display(fig)
+
+    @info "Making an animation from saved data..."
+    CairoMakie.record(i -> frame[] = i,
+        fig,
+        "pretty_things/" * label * ".mp4",
+        1 : length(s),
+        framerate = 20)
+
+
+
+
 end
 
 ζ_δ_arrow_map(drifters)

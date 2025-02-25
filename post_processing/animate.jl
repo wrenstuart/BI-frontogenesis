@@ -43,11 +43,6 @@ function ani_xy(label::String, a::Float64, b::Float64)  # Animate vorticity and 
 
     δ = lift(iter -> file["timeseries/δ/$iter"][:, :, 1], iter)
     δ_on_f = lift(iter -> file["timeseries/δ/$iter"][:, :, 1]/f, iter)
-    u_x = lift(iter -> file["timeseries/u_x/$iter"][:, :, 1], iter)
-    v_x = lift(iter -> file["timeseries/v_x/$iter"][:, :, 1], iter)
-    u_y = lift((v_x, ζ) -> v_x - ζ, v_x, ζ₃_xy)
-    v_y = lift((u_x, δ) -> δ - u_x, u_x, δ)
-    e = lift((u_x, u_y, v_x, v_y) -> u_x .* v_y - (u_y + v_x).^2 / 4, u_x, u_y, v_x, v_y)
 
     # Extract the values that iter can take
     iterations = parse.(Int, keys(file["timeseries/t"]))
@@ -399,12 +394,12 @@ function ani_tracers(label::String)     # Animate drifters at the surface over a
 
     frame = Observable(1)
 
-    tracers_now_x = lift(i -> [tracer[i][1]/1e3 for tracer in tracers], frame)
-    tracers_now_y = lift(i -> [tracer[i][2]/1e3 for tracer in tracers], frame)
+    tracers_now_x = lift(i -> [tracer[minimum([5i, length(tracer)])][1]/1e3 for tracer in tracers], frame)
+    tracers_now_y = lift(i -> [tracer[minimum([5i, length(tracer)])][2]/1e3 for tracer in tracers], frame)
 
     ζ_on_f = lift(frame) do i
         iter = iterations[i]
-        data.file["timeseries/ζ₃/$iter"][:, :, 1]/f
+        data.file["timeseries/ζ/$iter"][:, :, 1]/f
     end
 
     fig = Figure()

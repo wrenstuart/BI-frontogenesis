@@ -8,3 +8,4 @@ simulation/*_input.jl
 *.png
 commands-for-nohup
 *.out
+sorc.jl
