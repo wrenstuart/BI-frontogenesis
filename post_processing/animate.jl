@@ -385,33 +385,9 @@ function front_detection(label, ∇b_scale = 5e-6, L_scale = 8000)
     
 end
 
-function ani_tracers(label::String)     # Animate drifters at the surface over a ζ video
-    
-    data = topdata(label)
-    iterations = parse.(Int, keys(data.file["timeseries/t"]))
-    tracers = extract_tracers(label)
-    f = 1e-4
-
-    frame = Observable(1)
-
-    tracers_now_x = lift(i -> [tracer[minimum([5i, length(tracer)])][1]/1e3 for tracer in tracers], frame)
-    tracers_now_y = lift(i -> [tracer[minimum([5i, length(tracer)])][2]/1e3 for tracer in tracers], frame)
-
-    ζ_on_f = lift(frame) do i
-        iter = iterations[i]
-        data.file["timeseries/ζ/$iter"][:, :, 1]/f
-    end
-
-    fig = Figure()
-    ax = Axis(fig[1, 1], aspect = 1)
-    heatmap!(ax, data.x/1e3, data.y/1e3, ζ_on_f, colormap = :coolwarm, colorrange = (-20, 20));
-    scatter!(ax, tracers_now_x, tracers_now_y, marker = '.', markersize = 30, color = :black)
-
-    record(i -> frame[] = i, fig, "pretty_things/tracer_" * label * ".mp4", 1 : length(iterations), framerate = 20)
-    
-end
-
 function ζ_δ_lagr(label)
+
+    # Makes a scatter plot of ζ and δ tracked by drifters, animated with time
     
     data = topdata(label)
     drifters = extract_tracers(label)
@@ -444,4 +420,95 @@ end
 # TRY REWRITING WITH OBSERVABLES ONLY MENTIONED IN THE PLOTTING BIT #
 #####################################################################
 
-nothing
+function test_ζ_tendency(label::String)
+
+    # To check whether the ζ budget holds in an Eulerian sense (it does)
+
+    # Set the two dimensional parameters
+    H = 50    # Depth of mixed layer
+    f = 1e-4  # Coriolis parameter
+
+    filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
+
+    # Read in the first iteration. We do this to load the grid
+    ζ_ic = FieldTimeSeries(filename_xy_top, "ζ", iterations = 0)
+
+    xζ, yζ, zζ = nodes(ζ_ic)
+
+    # Now, open the file with our data
+    file = jldopen(filename_xy_top)
+
+    iterations = parse.(Int, keys(file["timeseries/t"]))
+
+    # Set up observables for plotting that will update as the iteration number is updated
+    iter = Observable(0)
+    frame = lift(iter) do i
+        argmin(abs.(iterations .- i))
+    end
+    ζₜ = lift(frame) do frame
+        if frame == 1
+            i₁ = iterations[1]
+            i₂ = iterations[2]
+        elseif frame == length(iterations)
+            i₁ = iterations[end - 1]
+            i₂ = iterations[end]
+        else
+            i₁ = iterations[frame - 1]
+            i₂ = iterations[frame + 1]
+        end
+        Δt = file["timeseries/t/$i₂"] - file["timeseries/t/$i₁"]
+        return (file["timeseries/ζ/$i₂"][:, :, 1] - file["timeseries/ζ/$i₁"][:, :, 1]) / Δt
+    end
+    G_ζ = lift(iter -> file["timeseries/ζ_tendency/$iter"][:, :, 1], iter)
+    ζ_cor = lift(iter -> file["timeseries/ζ_cor/$iter"][:, :, 1], iter)
+    ζ_visc = lift(iter -> file["timeseries/ζ_visc/$iter"][:, :, 1], iter)
+    ζ_div𝐯 = lift(iter -> file["timeseries/ζ_div𝐯/$iter"][:, :, 1], iter)
+    ζ_adv = lift(iter -> file["timeseries/ζ_adv/$iter"][:, :, 1], iter)
+    ζ_err = lift(iter -> file["timeseries/ζ_err/$iter"][:, :, 1], iter)
+    F_ζ_hor = lift(iter -> file["timeseries/F_ζ_hor/$iter"][:, :, 1], iter)
+    F_ζ_vrt = lift(iter -> file["timeseries/F_ζ_vrt/$iter"][:, :, 1], iter)
+    ζδ = lift(iter -> file["timeseries/ζ/$iter"][:, :, 1] * file["timeseries/δ/$iter"][:, :, 1], iter)
+    diff = lift(iter -> ζₜ[] + ζ_adv[] - F_ζ_hor[] - F_ζ_vrt[] + ζ_err[] - (ζ_cor[] + ζ_visc[]), iter)
+    t = lift(iter -> file["timeseries/t/$iter"], iter)   # Time elapsed by this iteration
+    str_ft = lift(t) do t
+        ft = @sprintf("%.2f", f*t)
+        return L"ft=%$(ft)"
+    end
+
+    # Calculate the maximum relative vorticity and buoyancy flux to set the scale for the colourmap
+    ζₜ_max = 0
+
+    for i = Int(round(length(iterations)/10)) : length(iterations)
+        iter[] = iterations[i]
+        ζₜ_max = maximum([ζₜ_max, maximum(ζₜ[])])
+    end
+
+    @info "Drawing first frame"
+
+    # Create the plot, starting at t = 0
+    # This will be updated as the observable iter is updated
+    iter[] = 0
+
+    fig = Figure(size = (950, 320))
+    ax_1 = Axis(fig[1, 1][1, 1], title = L"zeta_t", width = 200, height = 200)
+    ax_2 = Axis(fig[1, 2][1, 1], title = L"zeta tend", width = 200, height = 200)
+    ax_3 = Axis(fig[1, 3][1, 1], title = L"zeta error", width = 200, height = 200)
+    hm_1 = heatmap!(ax_1, xζ/1kilometer, yζ/1kilometer, ζₜ; colormap = :coolwarm, colorrange = (-ζₜ_max, ζₜ_max));
+    hm_2 = heatmap!(ax_2, xζ/1kilometer, yζ/1kilometer, G_ζ; colormap = :coolwarm, colorrange = (-ζₜ_max, ζₜ_max))
+    hm_3 = heatmap!(ax_3, xζ/1kilometer, yζ/1kilometer, diff; colormap = :coolwarm, colorrange = (-ζₜ_max, ζₜ_max))
+    Colorbar(fig[1, 1][1, 2], hm_1, height = 200)
+    Colorbar(fig[1, 2][1, 2], hm_2, height = 200)
+    Colorbar(fig[1, 3][1, 2], hm_3, height = 200)
+    Makie.Label(fig[0, 1:3], str_ft)
+    #resize_to_layout!(fig)
+
+    display(fig)
+
+    @info "Making an animation from saved data..."
+    CairoMakie.record(i -> iter[] = i,
+           fig,
+           "pretty_things/" * label * ".mp4",
+           iterations,
+           framerate = 20)
+
+end

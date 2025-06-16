@@ -8,7 +8,7 @@ function amplitude(u, v, w, b, f, aspect)
 
 end
 
-function least_stable_mode(Ri, k, l; H = 50, f = 1e-4, νᵥ = 1e-3, νₕ = 1e+1, N² = 1e-4, N = 100, rate_only = false)
+function least_stable_mode(Ri, k, l; H = 50, f = 1e-4, νᵥ = 1e-3, νₕ = 1e+1, N² = 1e-4, N = 50, rate_only = false)
     
     M² = (N²*f^2/Ri) ^ 0.5
     Δz = H/(N-1)
@@ -90,7 +90,7 @@ function least_stable_mode(Ri, k, l; H = 50, f = 1e-4, νᵥ = 1e-3, νₕ = 1e+
 
 end
 
-function generate_ic(Ri, L, U; N = 100, H = 50)
+function generate_ic(Ri, L, U; N = 50, H = 50)
     
     u_modes = []
     v_modes = []

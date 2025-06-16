@@ -48,7 +48,7 @@ function get_drifter_data(label)
     return t, drifters
 end
 
-label = "submergeddrifters3"
+label = "test"
 t, drifters = get_drifter_data(label)
 
 f = 1e-4
@@ -58,19 +58,22 @@ f = 1e-4
 u_y(d) = d.v_x - d.ζ
 v_y(d) = d.δ - d.u_x
 ∇ₕb(d) = (d.b_x^2 + d.b_y^2) ^ 0.5
-F_hor_ζ(d) = -d.δ * d.ζ
-F_vrt_ζ(d) = d.w_y * d.u_z - d.w_x * d.v_z
-F_Cor_ζ(d) = -f * d.δ
-H_mix_ζ(d) = νₕ * d.∇ₕ²ζ
-V_mix_ζ(d) = νᵥ * d.ζ_zz
-vert_adv_ζ(d) = -d.w * d.ζ_z
+F_hor_ζ(d) = d.F_ζ_hor#-d.δ * d.ζ
+F_vrt_ζ(d) = d.F_ζ_vrt#d.w_y * d.u_z - d.w_x * d.v_z
+F_Cor_ζ(d) = d.ζ_cor#-f * d.δ
+H_mix_ζ(d) = d.ζ_visc#νₕ * d.∇ₕ²ζ
+V_mix_ζ(d) = 0#νᵥ * d.ζ_zz
+ζ_err_func(d) = d.ζ_err
+vert_adv_ζ(d) = 0#-d.w * d.ζ_z
+ζ_adv_func(d) = d.ζ_adv
+ζ_tendency_func(d) = d.ζ_tendency
 
-F_hor_δ(d) = -(d.u_x ^ 2 + 2 * d.v_x * u_y(d) + v_y(d) ^ 2)
-F_vrt_δ(d) = -(d.w_x * d.u_z + d.w_y * d.v_z)
-F_Cor_δ(d) = f * d.ζ
-F_prs_δ(d) = -d.fζ_g
-H_mix_δ(d) = νₕ * d.∇ₕ²δ
-V_mix_δ(d) = νᵥ * d.δ_zz
+F_hor_δ(d) = 0#-(d.u_x ^ 2 + 2 * d.v_x * u_y(d) + v_y(d) ^ 2)
+F_vrt_δ(d) = 0#-(d.w_x * d.u_z + d.w_y * d.v_z)
+F_Cor_δ(d) = 0#f * d.ζ
+F_prs_δ(d) = 0#-d.fζ_g
+H_mix_δ(d) = 0#νₕ * d.∇ₕ²δ
+V_mix_δ(d) = 0#νᵥ * d.δ_zz
 
 ∇ₕ𝐮ₕ(d) = (d.u_x ^ 2 + d.v_x ^ 2 + u_y(d) ^ 2 + v_y(d) ^ 2) ^ 0.5
 ζ_on_f(d) = d.ζ / f
@@ -495,9 +498,135 @@ function animate_drifter_balance(drifter, section)
         1 : length(s),
         framerate = 20)
 
-
-
-
 end
 
-ζ_δ_arrow_map(drifters)
+function ani_drifters(label::String)
+    t_drifters, drifters = get_drifter_data(label)
+    ani_drifters(label, drifters[1], 2 : length(t_drifters)-1)
+end
+
+function ani_drifters(label::String, drifter, section)     # Animate drifters at the surface over a ζ video
+    
+    fig = Figure(size = (950, 950))
+
+    s = section
+    Δt = t[s[2]] - t[s[1]]
+    data = topdata(label)
+    iterations = parse.(Int, keys(data.file["timeseries/t"]))
+    tracers = extract_tracers(label)
+    t_drifters, ~ = get_drifter_data(label)
+    ft = f * t_drifters
+    first_iter_index = argmin(abs.([data.file["timeseries/t/$iter"] for iter in iterations] .- t_drifters[s[1]])) + 3
+    last_iter_index = argmin(abs.([data.file["timeseries/t/$iter"] for iter in iterations] .- t_drifters[s[end]])) - 3
+
+    frame = Observable(1)
+    iter = lift(i -> iterations[i], frame)
+    t_obs = lift(iter -> data.file["timeseries/t/$iter"], iter)
+    ζ_on_f = lift(i -> data.file["timeseries/ζ/$i"][:, :, 1]/f, iter)
+    δ_on_f = lift(i -> data.file["timeseries/δ/$i"][:, :, 1]/f, iter)
+    b = lift(i -> data.file["timeseries/b/$i"][:, :, 1], iter)
+    i_drifter = lift(t -> argmin(abs.(t_drifters .- t)), t_obs)
+    ft_obs = lift(i -> ft[i], i_drifter)
+    tracers_now_x = lift(i -> drifter[i].x/1e3, i_drifter)
+    tracers_now_y = lift(i -> drifter[i].y/1e3, i_drifter)
+
+    if length(section) < 5
+        return
+    end
+    s = section
+    ft = f * t[s]
+    Dₜζ = [(drifter[i+1].ζ - drifter[i-1].ζ) / (t[i+1] - t[i-1]) for i in s]*other_mult
+    Dₜδ = [(drifter[i+1].δ - drifter[i-1].δ) / (t[i+1] - t[i-1]) for i in s]*δ_mult
+    x = [drifter[i].x for i in s]
+    y = [drifter[i].y for i in s]
+    Fζ_hor = F_hor_ζ.(drifter[s])*δ_mult*other_mult
+    Fζ_vrt = F_vrt_ζ.(drifter[s])*δ_mult*other_mult
+    Fζ_Cor = F_Cor_ζ.(drifter[s])*δ_mult
+    Hζ_mix = H_mix_ζ.(drifter[s])*other_mult
+    Vζ_mix = V_mix_ζ.(drifter[s])*other_mult
+    # new ↓
+    ζ_err = ζ_err_func.(drifter[s])
+    ζ_adv = ζ_adv_func.(drifter[s])
+    ζ_tendency = ζ_tendency_func.(drifter[s])
+    # new ↑
+    ζ_vert_adv = vert_adv_ζ.(drifter[s])
+    Fδ_hor = F_hor_δ.(drifter[s])*δ_mult^2
+    Fδ_Cor = F_Cor_δ.(drifter[s])*other_mult
+    Fδ_prs = F_prs_δ.(drifter[s])*other_mult
+    Hδ_mix = H_mix_δ.(drifter[s])*δ_mult
+    Vδ_mix = V_mix_δ.(drifter[s])*δ_mult
+
+    s = s[3:end-2]
+    ft = ft[3:end-2]
+    Dₜζ = smooth_timeseries(Dₜζ)
+    Dₜδ = smooth_timeseries(Dₜδ)
+    x = smooth_timeseries(x)
+    y = smooth_timeseries(y)
+    Fζ_hor = smooth_timeseries(Fζ_hor)
+    Fζ_vrt = smooth_timeseries(Fζ_vrt)
+    Fζ_Cor = smooth_timeseries(Fζ_Cor)
+    Hζ_mix = smooth_timeseries(Hζ_mix)
+    Vζ_mix = smooth_timeseries(Vζ_mix)
+    ζ_vert_adv = smooth_timeseries(ζ_vert_adv)
+    # new ↓
+    ζ_err = smooth_timeseries(ζ_err)
+    ζ_adv = smooth_timeseries(ζ_adv)
+    ζ_tendency = smooth_timeseries(ζ_tendency)
+    # new ↑
+    Fδ_hor = smooth_timeseries(Fδ_hor)
+    Fδ_Cor = smooth_timeseries(Fδ_Cor)
+    Fδ_prs = smooth_timeseries(Fδ_prs)
+    Hδ_mix = smooth_timeseries(Hδ_mix)
+    Vδ_mix = smooth_timeseries(Vδ_mix)
+
+    ax_ζ = Axis(fig[2, 1:3], height = 200)
+    lines!(ax_ζ, ft, Fζ_hor, label = "horizontal")
+    lines!(ax_ζ, ft, Fζ_vrt, label = "vertical")
+    lines!(ax_ζ, ft, Fζ_Cor, label = "Coriolis")
+    lines!(ax_ζ, ft, Hζ_mix, label = "mixing")
+    lines!(ax_ζ, ft, ζ_err, label = "error")
+    lines!(ax_ζ, ft, ζ_vert_adv, label = "vert. adv.")
+    # lines!(ax_ζ, ft, Dₜζ - (Fζ_hor + Fζ_vrt + Fζ_Cor + Hζ_mix + Vζ_mix + ζ_vert_adv), label = "discrepancy", color = :black, linestyle = :dot)
+    # lines!(ax_ζ, ft, Dₜζ - (Fζ_hor + Fζ_vrt + Fζ_Cor + Hζ_mix + Vζ_mix + ζ_vert_adv + ζ_err), label = "discrepancy", color = :black, linestyle = :dot)
+    lines!(ax_ζ, ft, ζ_tendency + ζ_adv - (Fζ_hor + Fζ_vrt + Fζ_Cor + Hζ_mix + Vζ_mix + ζ_vert_adv - ζ_err), label = "discrepancy", color = :black, linestyle = :dot)
+    # lines!(ax_ζ, ft, Dₜζ, label = L"D\zeta/Dt", color = :black)
+    lines!(ax_ζ, ft, ζ_tendency + ζ_adv, label = L"D\zeta/Dt", color = :black)
+    vlines!(ax_ζ, ft_obs, color = :black)
+    axislegend(position = :lb)
+    # DELTA STUFF HAS NOT BEEN UPDATED
+    ax_δ = Axis(fig[3, 1:3], height = 200)
+    lines!(ax_δ, ft, Fδ_hor, label = "horizontal")
+    lines!(ax_δ, ft, Fδ_Cor, label = "Coriolis")
+    lines!(ax_δ, ft, Fδ_prs, label = "pressure")
+    lines!(ax_δ, ft, Hδ_mix, label = "hor. mixing")
+    lines!(ax_δ, ft, Vδ_mix, label = "vert. mixing")
+    lines!(ax_δ, ft, Dₜδ - (Fδ_hor + Fδ_Cor + Hδ_mix + Vδ_mix + Fδ_prs), label = "discrepancy", color = :black, linestyle = :dot)
+    lines!(ax_δ, ft, Dₜδ, label = L"D\delta/Dt", color = :black)
+    vlines!(ax_δ, ft_obs, color = :black)
+    axislegend(position = :lb)
+
+    b_ic = data.file["timeseries/b/0"][:, :, 1]
+    b_max = maximum(b_ic)
+
+    ax_ζ = Axis(fig[1, 1][1, 1], aspect = 1)
+    hm_ζ = heatmap!(ax_ζ, data.x/1e3, data.y/1e3, ζ_on_f, colormap = :coolwarm, colorrange = (-20, 20), height = 200);
+    scatter!(ax_ζ, tracers_now_x, tracers_now_y, marker = '.', markersize = 15, color = :black)
+    Colorbar(fig[1, 1][1, 2], hm_ζ, height = 200)
+    ax_δ = Axis(fig[1, 2][1, 1], aspect = 1)
+    hm_δ = heatmap!(ax_δ, data.x/1e3, data.y/1e3, δ_on_f, colormap = :coolwarm, colorrange = (-20, 20), height = 200);
+    scatter!(ax_δ, tracers_now_x, tracers_now_y, marker = '.', markersize = 15, color = :black)
+    Colorbar(fig[1, 2][1, 2], hm_δ, height = 200)
+    ax_b = Axis(fig[1, 3][1, 1], aspect = 1)
+    hm_b = heatmap!(ax_b, data.x/1e3, data.y/1e3, b, colorrange = (-0.5b_max, 1.5b_max), height = 200);
+    scatter!(ax_b, tracers_now_x, tracers_now_y, marker = '.', markersize = 15, color = :black)
+    Colorbar(fig[1, 3][1, 2], hm_b, height = 200)
+    
+    resize_to_layout!(fig)
+    display(fig)
+
+    record(i -> frame[] = i, fig, "pretty_things/tracer_" * label * ".mp4", first_iter_index : last_iter_index, framerate = 20)
+    
+end
+
+#ζ_δ_arrow_map(drifters)
+#ani_drifters("nu1e2", drifters[24], 2:100)
