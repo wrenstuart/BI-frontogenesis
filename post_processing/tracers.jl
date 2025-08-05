@@ -16,6 +16,7 @@ f = 1e-4
 ν_h = 1e+1
 
 struct FileData     # Useful struct for storing general data associated with a file
+
     file::JLD2.JLDFile{JLD2.MmapIO}
     x::Vector{Float64}
     y::Vector{Float64}
@@ -29,6 +30,7 @@ struct FileData     # Useful struct for storing general data associated with a f
     Δx::Float64
     Δy::Float64
     Δz::Float64
+    
 end
 
 function FileData(file::JLD2.JLDFile{JLD2.MmapIO}, x::Vector{Float64}, y::Vector{Float64}, z::Vector{Float64})
@@ -47,22 +49,27 @@ function topdata(label::String) # Get FileData type info from "_xy_top" of file
     return data
 end
 
-function grid_interpolate(data::FileData, var::String, x::Float64, y::Float64, iter::Int)   # Interpolate var to surface position (x, y) between gridpoints
+function grid_interpolate(data::FileData, f::Function, x::Float64, y::Float64, iter::Int)   # Interpolate var to surface position (x, y) between gridpoints
+    # ffa only?
 
     i₋ = Int(floor(x/data.Lx * data.Nx)) + 1
-    i₊ = i₋ % data.Nx + 1
     j₋ = Int(floor(y/data.Ly * data.Ny)) + 1
+    i₊ = i₋ % data.Nx + 1
     j₊ = j₋ % data.Ny + 1
     x_frac = (x - data.x[i₋]) / data.Δx
     y_frac = (y - data.y[j₋]) / data.Δy
-
-    f₋₋ = data.file["timeseries/$var/$iter"][i₋, j₋, 1]
-    f₋₊ = data.file["timeseries/$var/$iter"][i₋, j₊, 1]
-    f₊₋ = data.file["timeseries/$var/$iter"][i₊, j₋, 1]
-    f₊₊ = data.file["timeseries/$var/$iter"][i₊, j₊, 1]
-    f = (1-x_frac) * (1-y_frac) * f₋₋ + (1-x_frac) * y_frac * f₋₊ + x_frac * (1-y_frac) * f₊₋ + x_frac * y_frac * f₊₊
+    f₋₋ = f(i₋, j₋)
+    f₋₊ = f(i₋, j₊)
+    f₊₋ = f(i₊, j₋)
+    f₊₊ = f(i₊, j₊)
     
-    return f
+    return (1-x_frac) * (1-y_frac) * f₋₋ + (1-x_frac) * y_frac * f₋₊ + x_frac * (1-y_frac) * f₊₋ + x_frac * y_frac * f₊₊
+
+end
+
+function grid_interpolate(data::FileData, var::String, x::Float64, y::Float64, iter::Int)   # Interpolate var to surface position (x, y) between gridpoints
+
+    return grid_interpolate(data, (i, j) -> data.file["timeseries/$var/$iter"][i, j, 1], x, y, iter)
 
 end
 

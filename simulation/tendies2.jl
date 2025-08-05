@@ -329,3 +329,15 @@ end
             + f̅ᶠᶠᵃ(f̅ᵃᵃᶜ(w))(i, j, k) * f̅ᵃᵃᶜ(∂zᵃᵃᶠ_f(grid, ζ_f))(i, j, k))
     
 end
+
+@inline function ζ_h_adv_func(i, j, k, grid, other_args)
+
+    a = other_args
+    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
+    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
+    ζ_f = (i, j, k) -> ∂xᶠᶠᶜ(i, j, k, grid, v) - ∂yᶠᶠᶜ(i, j, k, grid, u)
+
+    return (  f̅★ᵃᵃ(f̅ᵃᶠᵃ(u))(i, j, k) * f̅ᶠᵃᵃ(∂xᶜᵃᵃ_f(grid, ζ_f))(i, j, k)
+            + f̅ᵃ★ᵃ(f̅ᶠᵃᵃ(v))(i, j, k) * f̅ᵃᶠᵃ(∂yᵃᶜᵃ_f(grid, ζ_f))(i, j, k))
+    
+end

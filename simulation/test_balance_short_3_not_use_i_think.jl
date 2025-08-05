@@ -4,17 +4,19 @@ using Printf
 using Oceananigans
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Operators
+using Oceananigans.BoundaryConditions: fill_halo_regions!
 using CUDA
 using StructArrays
 using Oceananigans.Fields
 using Oceananigans.Architectures: arch_array
+using Unroll
 
 using Oceananigans.Models.NonhydrostaticModels
 
 include("test_input.jl")
 include("../QOL.jl")
 include("../instabilities/modes.jl")
-include("tendies.jl")
+include("tendies2.jl")
 
 function physical_quantities_from_inputs(Ri, s)
 
@@ -55,33 +57,19 @@ struct MyParticle
 
     ζ::Float64
     δ::Float64
-    u_x::Float64
-    v_x::Float64
-    b_x::Float64
-    b_y::Float64
-    ζ_zz::Float64
-    my_ζ_zz::Float64
-    my_δ_zz::Float64
-    δ_zz::Float64
-    ∇ₕ²ζ::Float64
-    ∇ₕ²δ::Float64
-    fζ_g::Float64
-    b_xzz::Float64
-    b_yzz::Float64
-    u_z::Float64
-    v_z::Float64
-    w::Float64
-    ζ_z::Float64
-    w_x::Float64
-    w_y::Float64
-
     ζ_tendency::Float64
+    ζ_cor::Float64
+    ζ_visc::Float64
+    ζ_err::Float64
+    F_ζ_hor::Float64
+    F_ζ_vrt::Float64
+    ζ_adv::Float64
 
 end
 
 params = sim_params()
 resolution = params.res
-label = "test"
+label = "test_3"
 
 phys_params, domain, ic, background, BCs = physical_quantities_from_inputs(params.Ri, params.s)
 f = phys_params.f
@@ -113,13 +101,17 @@ diff_v = VerticalScalarDiffusivity(ν = params.ν_v, κ = params.ν_v)
 
 # Introduce Lagrangian particles in an n × n grid
 n = 20
-x₀ = [domain.x * (i % n) / n for i = 0 : n^2-1]
-y₀ = [domain.y * (i ÷ n) / n for i = 0 : n^2-1]
+x₀ = Array{Float64, 1}(undef, n^2)
+y₀ = Array{Float64, 1}(undef, n^2)
+@unroll for i = 0 : n^2-1
+    x₀[i+1] = domain.x * (i % n) / n
+    y₀[i+1] = domain.y * (i ÷ n) / n
+end
 if params.GPU
     x₀, y₀ = CuArray.([x₀, y₀])
 end
 O = params.GPU ? () -> CuArray(zeros(n^2)) : () -> zeros(n^2)
-particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
+particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
 
 @inline function ∂²zᵃᵃᶠ_top(i, j, k, grid, u)
     δz² = Δzᶠᶠᶜ(i, j, k, grid)^2
@@ -165,10 +157,13 @@ fζ_g = ∇ₕ²(p)
 b_xzz_op = KernelFunctionOperation{Face, Center, Face}(∂²zᵃᵃᶠ_top, grid, b_x)
 b_yzz_op = KernelFunctionOperation{Center, Face, Face}(∂²zᵃᵃᶠ_top, grid, b_y)
 my_ζ_zz = Field(ζ_zz_op)
-my_δ_zz = Field(δ_zz_op)
+#my_δ_zz = Field(δ_zz_op)
 b_xzz = Field(b_xzz_op)
 b_yzz = Field(b_yzz_op)
 
+my_ζ_visc = params.ν_h * ∇ₕ²ζ + params.ν_v * my_ζ_zz
+my_ζ_cor = -ζ*δ
+my_ζ_hor = -f*δ
 
 u_back = Field{Face, Center, Center}(grid)
 v_back = Field{Center, Face, Center}(grid)
@@ -176,44 +171,70 @@ w_back = Field{Center, Center, Face}(grid)
 b_back = Field{Center, Center, Center}(grid)
 set!(u_back, (x, y, z) -> background.U(x, y, z, 0))
 set!(b_back, (x, y, z) -> background.B(x, y, z, 0))
+fill_halo_regions!(u_back)
+fill_halo_regions!(b_back)
 background_fields = (velocities = (u = u_back, v = v_back, w = w_back),
                      tracers = (b_back))
 closure = (diff_h, diff_v)
 diffusivities = ((ν = params.ν_h, κ = params.ν_h), (ν = params.ν_v, κ = params.ν_v))
 
-@inline u_tendency_op = KernelFunctionOperation{Face, Center, Center}(
-    u_tendency_func,
-    grid,
-    params.advection_scheme(),
-    FPlane(f = f),
-    closure,
-    Buoyancy(model = BuoyancyTracer()),
-    background_fields,
-    velocities,
-    tracers,
-    diffusivities,
-    pHY′)
+other_args = (advection_scheme = params.advection_scheme(),
+              coriolis = FPlane(f = f),
+              closure = closure,
+              buoyancy = Buoyancy(model = BuoyancyTracer()),
+              background_fields = background_fields,
+              velocities = velocities,
+              tracers = tracers,
+              diffusivities = diffusivities,
+              hydrostatic_pressure = pHY′)
+
+@inline u_tendency_op = KernelFunctionOperation{Face, Center, Center}(u_tendency_func, grid, other_args)
+@inline u_cor_op      = KernelFunctionOperation{Face, Center, Center}(u_cor_func,      grid, other_args)
+@inline u_visc_op     = KernelFunctionOperation{Face, Center, Center}(u_visc_func,     grid, other_args)
+@inline u_err_op      = KernelFunctionOperation{Face, Center, Center}(u_err_func,      grid, other_args)
+@inline u_div𝐯_op     = KernelFunctionOperation{Face, Center, Center}(u_div𝐯_func,     grid, other_args)
+@inline v_tendency_op = KernelFunctionOperation{Center, Face, Center}(v_tendency_func, grid, other_args)
+@inline v_cor_op      = KernelFunctionOperation{Center, Face, Center}(v_cor_func,      grid, other_args)
+@inline v_visc_op     = KernelFunctionOperation{Center, Face, Center}(v_visc_func,     grid, other_args)
+@inline v_err_op      = KernelFunctionOperation{Center, Face, Center}(v_err_func,      grid, other_args)
+@inline v_div𝐯_op     = KernelFunctionOperation{Center, Face, Center}(v_div𝐯_func,     grid, other_args)
+@inline my_u_div𝐯_op  = KernelFunctionOperation{Face, Center, Center}(my_u_div𝐯_func,  grid, other_args)
+@inline my_v_div𝐯_op  = KernelFunctionOperation{Center, Face, Center}(my_v_div𝐯_func,  grid, other_args)
 u_tendency = Field(u_tendency_op)
-
-@inline v_tendency_op = KernelFunctionOperation{Center, Face, Center}(
-    v_tendency_func,
-    grid,
-    params.advection_scheme(),
-    FPlane(f = f),
-    closure,
-    Buoyancy(model = BuoyancyTracer()),
-    background_fields,
-    velocities,
-    tracers,
-    diffusivities,
-    pHY′)
+u_cor      = Field(u_cor_op)
+u_visc     = Field(u_visc_op)
+u_err      = Field(u_err_op)
+u_div𝐯     = Field(u_div𝐯_op)
 v_tendency = Field(v_tendency_op)
-
+v_cor      = Field(v_cor_op)
+v_visc     = Field(v_visc_op)
+v_err      = Field(v_err_op)
+v_div𝐯     = Field(v_div𝐯_op)
 ζ_tendency = ∂x(v_tendency) - ∂y(u_tendency)
+ζ_cor      = ∂x(v_cor)      - ∂y(u_cor)
+ζ_visc     = ∂x(v_visc)     - ∂y(u_visc)
+ζ_err      = ∂x(v_err)      - ∂y(u_err)
+ζ_div𝐯     = ∂x(v_div𝐯)     - ∂y(u_div𝐯)        # 𝐳̂⋅∇×(∇⋅(𝐮𝐮))
+my_u_div𝐯  = Field(my_u_div𝐯_op)
+my_v_div𝐯  = Field(my_v_div𝐯_op)
 
+#=@inline ζ_tendency_op = KernelFunctionOperation{Face, Face, Center}(ζ_tendency_func, grid, other_args)
+ζ_tendency = Field(ζ_tendency_op)
+@inline ζ_cor_op = KernelFunctionOperation{Face, Face, Center}(ζ_cor_func, grid, other_args)
+ζ_cor = Field(ζ_cor_op)
+@inline ζ_visc_op = KernelFunctionOperation{Face, Face, Center}(ζ_visc_func, grid, other_args)
+ζ_visc = Field(ζ_visc_op)
+@inline ζ_err_op = KernelFunctionOperation{Face, Face, Center}(ζ_err_func, grid, other_args)
+ζ_err = Field(ζ_err_op)=#
+@inline F_ζ_hor_op = KernelFunctionOperation{Face, Face, Center}(F_ζ_hor_func, grid, other_args)
+@inline F_ζ_vrt_op = KernelFunctionOperation{Face, Face, Center}(F_ζ_vrt_func, grid, other_args)
+@inline ζ_adv_op = KernelFunctionOperation{Face, Face, Center}(ζ_adv_func, grid, other_args)
+F_ζ_hor = Field(F_ζ_hor_op)
+F_ζ_vrt = Field(F_ζ_vrt_op)
+ζ_adv = Field(ζ_adv_op)
 
-auxiliary_fields = (; ζ, δ, u_x, v_x, u_z, v_z, w_x, w_y, b_x, b_y, b_z, ζ_zz, δ_zz, ∇ₕ²ζ, ∇ₕ²δ, fζ_g, b_xzz, b_yzz, my_ζ_zz, my_δ_zz, ζ_z, ζ_tendency, u_tendency, v_tendency)
-drifter_fields = (; ζ, δ, u_x, v_x, b_x, b_y, ζ_zz, δ_zz, ∇ₕ²ζ, ∇ₕ²δ, fζ_g, b_xzz, b_yzz, my_ζ_zz, my_δ_zz, u_z, v_z, w, ζ_z, w_x, w_y, ζ_tendency)
+auxiliary_fields = (; ζ, δ, ζ_tendency, ζ_cor, ζ_visc, ζ_err, F_ζ_hor, F_ζ_vrt, ζ_adv)
+drifter_fields = auxiliary_fields
 
 function fix_particle_below_surface(lagrangian_particles, model, Δt)
     lagrangian_particles.properties.z .= -3domain.z / 2resolution[3]
@@ -309,18 +330,21 @@ simulation.output_writers[:xz_slices] =
                             overwrite_existing = true)
 
 # Output the slice z = 0
+##########################################
+############## NOT AT Z = 0 ##############
+##########################################
 filename = "raw_data/" * label * "_BI_xy"
 simulation.output_writers[:xy_slices] =
-    JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, fζ_g, u_tendency, v_tendency, ζ_tendency),
+    JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, ζ_tendency, ζ_cor, ζ_visc, ζ_err, F_ζ_hor, F_ζ_vrt, ζ_adv, ζ_div𝐯, u_div𝐯, v_div𝐯, my_u_div𝐯, my_v_div𝐯),
                             filename = filename * ".jld2",
-                            indices = (:, :, resolution[3]),
+                            indices = (:, :, resolution[3]-2),
                             schedule = TimeInterval(phys_params.T/20),
                             overwrite_existing = true)
 
 # Output the slice x = 0
 filename = "raw_data/" * label * "_BI_yz"
 simulation.output_writers[:yz_slices] =
-    JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, fζ_g),
+    JLD2OutputWriter(model, (; u, v, w, b, ζ, δ),
                             filename = filename * ".jld2",
                             indices = (1, :, :),
                             schedule = TimeInterval(phys_params.T/20),
@@ -329,7 +353,7 @@ simulation.output_writers[:yz_slices] =
 # Output a horizontal slice in the middle (verticall speaking)
 filename = "raw_data/" * label * "_BI_xy_mid"
 simulation.output_writers[:xy_slices_mid] =
-    JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, fζ_g),
+    JLD2OutputWriter(model, (; u, v, w, b, ζ, δ),
                             filename = filename * ".jld2",
                             indices = (:, :, Int64(round((resolution[3]+1) / 2))),
                             schedule = TimeInterval(phys_params.T/20),

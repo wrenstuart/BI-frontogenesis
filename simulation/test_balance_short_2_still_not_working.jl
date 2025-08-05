@@ -1,3 +1,5 @@
+# NOT RESOLVED
+
 using Printf
 using Oceananigans
 using Oceananigans.TurbulenceClosures
@@ -11,7 +13,9 @@ using Unroll
 
 using Oceananigans.Models.NonhydrostaticModels
 
-include("test_input.jl")
+label = "test_extra_visc_low_res"
+
+include(label * "_input.jl")
 include("../QOL.jl")
 include("../instabilities/modes.jl")
 include("tendies2.jl")
@@ -24,9 +28,9 @@ function physical_quantities_from_inputs(Ri, s)
     # Set the viscosities
 
     # Set the domain size
-    Lx = 2 * 2π * p.L * 0.4^0.5   # Zonal extent, set to 2 wavelengths of the most unstable mode
-    Ly = Lx                         # Meridional extent
-    Lz = p.H                        # Vertical extent
+    Lx = 2 * 2π * p.L * 0.4^0.5 # Zonal extent, set to 2 wavelengths of the most unstable mode
+    Ly = Lx                     # Meridional extent
+    Lz = p.H                    # Vertical extent
 
     # Set relative amplitude for random velocity perturbation
 
@@ -34,7 +38,7 @@ function physical_quantities_from_inputs(Ri, s)
     U₀(x, y, z, t) = -p.M²/p.f * (z + Lz)   # Zonal velocity
 
     # Set the initial perturbation conditions, a random velocity perturbation
-    uᵢ, vᵢ, wᵢ, bᵢ = generate_ic(Ri, Lx, p.U)
+    uᵢ, vᵢ, wᵢ, bᵢ = generate_ic(Ri, Lx, p.U, N = 10)
 
     u_bcs = FieldBoundaryConditions(top = GradientBoundaryCondition(0.0),
                                     bottom = GradientBoundaryCondition(0.0))
@@ -62,19 +66,19 @@ struct MyParticle
     F_ζ_hor::Float64
     F_ζ_vrt::Float64
     ζ_adv::Float64
+    ζ_h_adv::Float64
 
 end
 
 params = sim_params()
 resolution = params.res
-label = "test_2"
 
 phys_params, domain, ic, background, BCs = physical_quantities_from_inputs(params.Ri, params.s)
 f = phys_params.f
 
 # Set the time-stepping parameters
 max_Δt = 0.4 * pi / (phys_params.N²^0.5)
-duration = 20 / real(least_stable_mode(params.Ri, 4π/domain.x, 0, rate_only = true))
+duration = 10 / real(least_stable_mode(params.Ri, 4π/domain.x, 0, rate_only = true))
 if params.short_duration
     duration = duration / 20
 end
@@ -109,7 +113,7 @@ if params.GPU
     x₀, y₀ = CuArray.([x₀, y₀])
 end
 O = params.GPU ? () -> CuArray(zeros(n^2)) : () -> zeros(n^2)
-particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
+particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
 
 @inline function ∂²zᵃᵃᶠ_top(i, j, k, grid, u)
     δz² = Δzᶠᶠᶜ(i, j, k, grid)^2
@@ -212,7 +216,11 @@ v_div𝐯     = Field(v_div𝐯_op)
 ζ_cor      = ∂x(v_cor)      - ∂y(u_cor)
 ζ_visc     = ∂x(v_visc)     - ∂y(u_visc)
 ζ_err      = ∂x(v_err)      - ∂y(u_err)
-ζ_div𝐯     = ∂x(v_div𝐯)     - ∂y(u_div𝐯)        # 𝐳̂⋅∇×(∇⋅(𝐮𝐮))
+# ζ_div𝐯     = ∂x(v_div𝐯)     - ∂y(u_div𝐯)        # 𝐳̂⋅∇×(∇⋅(𝐮𝐮))
+compute!(ζ_tendency)
+compute!(ζ_cor)
+compute!(ζ_visc)
+compute!(ζ_err)
 my_u_div𝐯  = Field(my_u_div𝐯_op)
 my_v_div𝐯  = Field(my_v_div𝐯_op)
 
@@ -227,15 +235,17 @@ my_v_div𝐯  = Field(my_v_div𝐯_op)
 @inline F_ζ_hor_op = KernelFunctionOperation{Face, Face, Center}(F_ζ_hor_func, grid, other_args)
 @inline F_ζ_vrt_op = KernelFunctionOperation{Face, Face, Center}(F_ζ_vrt_func, grid, other_args)
 @inline ζ_adv_op = KernelFunctionOperation{Face, Face, Center}(ζ_adv_func, grid, other_args)
+@inline ζ_h_adv_op = KernelFunctionOperation{Face, Face, Center}(ζ_h_adv_func, grid, other_args)
 F_ζ_hor = Field(F_ζ_hor_op)
 F_ζ_vrt = Field(F_ζ_vrt_op)
 ζ_adv = Field(ζ_adv_op)
+ζ_h_adv = Field(ζ_h_adv_op)
 
-auxiliary_fields = (; ζ, δ, ζ_tendency, ζ_cor, ζ_visc, ζ_err, F_ζ_hor, F_ζ_vrt, ζ_adv)
+auxiliary_fields = (; ζ, δ, ζ_tendency, ζ_cor, ζ_visc, ζ_err, F_ζ_hor, F_ζ_vrt, ζ_adv, ζ_h_adv)
 drifter_fields = auxiliary_fields
 
 function fix_particle_below_surface(lagrangian_particles, model, Δt)
-    lagrangian_particles.properties.z .= -3domain.z / 2resolution[3]
+    lagrangian_particles.properties.z .= -domain.z / 2resolution[3]
 end
 if params.fix_drifters_below_surface
     lagrangian_drifters = LagrangianParticles(particles; tracked_fields = drifter_fields, dynamics = fix_particle_below_surface)
@@ -315,61 +325,26 @@ filename = "raw_data/" * label * "_particles"
 simulation.output_writers[:particles] =
     JLD2OutputWriter(model, (particles = model.particles,),
                             filename = filename * ".jld2",
-                            schedule = TimeInterval(phys_params.T/100),
+                            schedule = TimeInterval(phys_params.T/30),
                             overwrite_existing = true)
 
 # Output the slice y = 0
-filename = "raw_data/" * label * "_BI_xz"
-simulation.output_writers[:xz_slices] =
-    JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, fζ_g),
-                            filename = filename * ".jld2",
-                            indices = (:, 1, :),
-                            schedule = TimeInterval(phys_params.T/20),
-                            overwrite_existing = true)
+#filename = "raw_data/" * label * "_BI_xz"
+#simulation.output_writers[:xz_slices] =
+#    JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, fζ_g),
+#                            filename = filename * ".jld2",
+#                            indices = (:, 1, :),
+#                            schedule = TimeInterval(phys_params.T/100),
+#                            overwrite_existing = true)
 
 # Output the slice z = 0
-##########################################
-############## NOT AT Z = 0 ##############
-##########################################
 filename = "raw_data/" * label * "_BI_xy"
 simulation.output_writers[:xy_slices] =
-    JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, ζ_tendency, ζ_cor, ζ_visc, ζ_err, F_ζ_hor, F_ζ_vrt, ζ_adv, ζ_div𝐯, u_div𝐯, v_div𝐯, my_u_div𝐯, my_v_div𝐯),
+    JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, ζ_tendency, ζ_cor, ζ_visc, ζ_err, F_ζ_hor, F_ζ_vrt, ζ_adv, ζ_h_adv, u_div𝐯, v_div𝐯, my_u_div𝐯, my_v_div𝐯),
                             filename = filename * ".jld2",
-                            indices = (:, :, resolution[3]-2),
-                            schedule = TimeInterval(phys_params.T/20),
+                            indices = (:, :, resolution[3]),
+                            schedule = TimeInterval(phys_params.T/30),
                             overwrite_existing = true)
-
-# Output the slice x = 0
-filename = "raw_data/" * label * "_BI_yz"
-simulation.output_writers[:yz_slices] =
-    JLD2OutputWriter(model, (; u, v, w, b, ζ, δ),
-                            filename = filename * ".jld2",
-                            indices = (1, :, :),
-                            schedule = TimeInterval(phys_params.T/20),
-                            overwrite_existing = true)
-
-# Output a horizontal slice in the middle (verticall speaking)
-filename = "raw_data/" * label * "_BI_xy_mid"
-simulation.output_writers[:xy_slices_mid] =
-    JLD2OutputWriter(model, (; u, v, w, b, ζ, δ),
-                            filename = filename * ".jld2",
-                            indices = (:, :, Int64(round((resolution[3]+1) / 2))),
-                            schedule = TimeInterval(phys_params.T/20),
-                            overwrite_existing = true)
-
-filename = "raw_data/" * label * "_BI_y-avg"
-simulation.output_writers[:xy_slices_mid] =
-    JLD2OutputWriter(model, (; u̅, v̅, w̅, b̅, avg_ℬ),
-                            filename = filename * ".jld2",
-                            schedule = TimeInterval(phys_params.T/20),
-                            overwrite_existing = true)
-
-#=filename = "raw_data/" * label * "_full"
-simulation.output_writers[:full] =
-    JLD2OutputWriter(model, (; u, v, w, b),
-                            filename = filename * ".jld2",
-                            schedule = TimeInterval(duration / 4),
-                            overwrite_existing = true)=#
 
 nothing # hide
 

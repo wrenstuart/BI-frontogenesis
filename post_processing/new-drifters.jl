@@ -48,7 +48,7 @@ function get_drifter_data(label)
     return t, drifters
 end
 
-label = "test"
+label = "test_extra_visc"
 t, drifters = get_drifter_data(label)
 
 f = 1e-4
@@ -67,6 +67,7 @@ V_mix_ζ(d) = 0#νᵥ * d.ζ_zz
 vert_adv_ζ(d) = 0#-d.w * d.ζ_z
 ζ_adv_func(d) = d.ζ_adv
 ζ_tendency_func(d) = d.ζ_tendency
+ζ_visc_func(d) = d.ζ_visc
 
 F_hor_δ(d) = 0#-(d.u_x ^ 2 + 2 * d.v_x * u_y(d) + v_y(d) ^ 2)
 F_vrt_δ(d) = 0#-(d.w_x * d.u_z + d.w_y * d.v_z)
@@ -239,26 +240,26 @@ function ζ_δ(drifter)
 end
 
 function smooth_timeseries(x)
-    if length(x) < 5
+    n = 8
+    if length(x) < 2n+1
         return x
     else
-        return [mean(x[i-2:i+2]) for i = 3:length(x)-2]
+        return [mean(x[i-n:i+n]) for i = 1+n:length(x)-n]
     end
 end
 
-function plot_ζ_balance(drifter, section)
+#=function plot_ζ_balance(drifter, section)
     s = section
     Δt = t[s[2]] - t[s[1]]
     ft = f * t[s]
     Dₜζ = [(drifter[i+1].ζ - drifter[i-1].ζ) / (2Δt) for i in s]*other_mult
     fig = Figure()
     ax = Axis(fig[1, 1])
-    #ylims!(ax, (-2e-7, 2e-7))
-    F_hor = F_hor_ζ.(drifter[s])*δ_mult*other_mult
-    F_vrt = F_vrt_ζ.(drifter[s])*δ_mult*other_mult
-    F_Cor = F_Cor_ζ.(drifter[s])*δ_mult
-    H_mix = H_mix_ζ.(drifter[s])*other_mult
-    V_mix = V_mix_ζ.(drifter[s])*other_mult
+    F_hor = F_hor_ζ.(drifter[s])
+    F_vrt = F_vrt_ζ.(drifter[s])
+    F_Cor = F_Cor_ζ.(drifter[s])
+    H_mix = H_mix_ζ.(drifter[s])
+    V_mix = V_mix_ζ.(drifter[s])
     vert_adv = vert_adv_ζ.(drifter[s])
     if length(ft) > 5
         ft = ft[3:end-2]
@@ -279,6 +280,220 @@ function plot_ζ_balance(drifter, section)
     lines!(ax, ft, Dₜζ, label = L"D\zeta/Dt", color = :black)
     axislegend()
     display(fig)
+end=#
+
+function plot_ζ_balance_2(drifter_num)
+
+    t, drifters = get_drifter_data(label)
+    drifter = drifters[drifter_num]
+    s = 2 : length(t)-1
+
+    Δt = [t[i+1] - t[i-1] for i in s] / 2
+    ft = f * t[s]
+    Dₜζ = [(drifter[i+1].ζ - drifter[i-1].ζ) / (2(t[i+1]-t[i-1])) for i in s]
+    
+    F_hor = [d.F_ζ_hor for d in drifter[s]]
+    F_vrt = [d.F_ζ_vrt for d in drifter[s]]
+    F_Cor = [d.ζ_cor for d in drifter[s]]
+    ζ_err = [d.ζ_err for d in drifter[s]]
+    ζ_visc = [d.ζ_visc for d in drifter[s]]
+    ζ_adv = [d.ζ_adv for d in drifter[s]]
+    ζ_tendency = [d.ζ_tendency for d in drifter[s]]
+    ζ = [d.ζ for d in drifter[s]]
+
+    ft = ft[3:end-2]
+    Dₜζ = smooth_timeseries(Dₜζ)
+    F_hor = smooth_timeseries(F_hor)
+    F_vrt = smooth_timeseries(F_vrt)
+    F_Cor = smooth_timeseries(F_Cor)
+    ζ_err = smooth_timeseries(ζ_err)
+    ζ_visc = smooth_timeseries(ζ_visc)
+    ζ_adv = smooth_timeseries(ζ_adv)
+    ζ_tendency = smooth_timeseries(ζ_tendency)
+    ζ = smooth_timeseries(ζ)
+
+    fig = Figure()
+    ax = Axis(fig[1, 1])
+    lines!(ax, ft, ζ_tendency, label = "ζ_tendency")
+    lines!(ax, ft, -ζ_adv - ζ_err + F_hor + F_vrt + F_Cor + ζ_visc, label = "ζ_tendency (mine)")
+    lines!(ax, ft, -ζ_tendency -ζ_adv - ζ_err + F_hor + F_vrt + F_Cor + ζ_visc, label = "difference")
+    #lines!(ax, ft, ζ_tendency + ζ_adv, label = "ζ_tendency + ζ_adv")
+    #lines!(ax, ft, Dₜζ, label = L"D\zeta/Dt")
+    #lines!(ax, ft, f*ζ, label = L"\zeta f", linestyle = :dot)
+    axislegend()
+    display(fig)
+
+end
+
+#############################################
+# THE BELOW AND ABOVE REVEAL THE FOLLOWING: #
+#############################################
+# The ζ balance holds perfectly when looking
+# at a single grid-point, but is violated
+# when we look at Lagrangian tracking
+
+function plot_ζ_balance_2_static(i, j)
+
+    filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
+    file = jldopen(filename_xy_top)
+    iterations = parse.(Int, keys(file["timeseries/t"]))
+    ζ = [file["timeseries/ζ/$iter"][i, j, 1] for iter in iterations]
+    
+    F_hor = [file["timeseries/F_ζ_hor/$iter"][i, j, 1] for iter in iterations]
+    F_vrt = [file["timeseries/F_ζ_vrt/$iter"][i, j, 1] for iter in iterations]
+    F_Cor = [file["timeseries/ζ_cor/$iter"][i, j, 1] for iter in iterations]
+    ζ_err = [file["timeseries/ζ_err/$iter"][i, j, 1] for iter in iterations]
+    ζ_visc = [file["timeseries/ζ_visc/$iter"][i, j, 1] for iter in iterations]
+    ζ_adv = [file["timeseries/ζ_adv/$iter"][i, j, 1] for iter in iterations]
+    ζ_tendency = [file["timeseries/ζ_tendency/$iter"][i, j, 1] for iter in iterations]
+
+    # Dₜζ = smooth_timeseries(Dₜζ)
+    F_hor = smooth_timeseries(F_hor)
+    F_vrt = smooth_timeseries(F_vrt)
+    F_Cor = smooth_timeseries(F_Cor)
+    ζ_err = smooth_timeseries(ζ_err)
+    ζ_visc = smooth_timeseries(ζ_visc)
+    ζ_adv = smooth_timeseries(ζ_adv)
+    ζ_tendency = smooth_timeseries(ζ_tendency)
+
+    fig = Figure()
+    ax = Axis(fig[1, 1])
+    lines!(ax, iterations[3:end-2], ζ_tendency, label = "ζ_tendency")
+    lines!(ax, iterations[3:end-2], -ζ_adv - ζ_err + F_hor + F_vrt + F_Cor + ζ_visc, label = "ζ_tendency (mine)")
+    axislegend()
+    display(fig)
+
+end
+
+function plot_ζ_balance_interp_vs_track(drifter_num)
+    # RELIES ON THE fact that the drifter data is
+    # output at the same time as the top data
+
+    t_drifter, drifters = get_drifter_data(label)
+    drifter = drifters[drifter_num]
+    ζ₁ = [d.F_ζ_hor for d in drifter]
+    ζ₁ = [d.ζ for d in drifter][1:2000]
+
+    file_data = topdata(label)
+    file = file_data.file
+    iterations = parse.(Int, keys(file["timeseries/t"]))[1:2000]
+    # ζ₂ = [file["timeseries/ζ/$iter"][i, j, 1] for iter in iterations]
+    t_top = [file["timeseries/t/$iter"] for iter in iterations]
+    t_drifter = t_drifter[1:2000]
+    #s = [argmin(abs.(t_drifter .- t_top[i])) for i in 1:length(iterations)]
+    #ζ₁ = ζ₁[s]
+    ζ₂ = [grid_interpolate(file_data, "F_ζ_hor", drifter[i].x, drifter[i].y, iterations[i]) for i in eachindex(iterations)]
+    ζ₂ = [grid_interpolate(file_data, "ζ", drifter[i].x, drifter[i].y, iterations[i]) for i in eachindex(iterations)]
+    x̂ = [(drifter[i].x * file_data.Nx/file_data.Lx) % 1 for i in eachindex(iterations)]
+    ŷ = [(drifter[i].y * file_data.Ny/file_data.Ly) % 1 for i in eachindex(iterations)]
+
+    t_top = smooth_timeseries(t_top)
+    t_drifter = smooth_timeseries(t_drifter)
+    ζ₁ = smooth_timeseries(ζ₁)
+    ζ₂ = smooth_timeseries(ζ₂)
+
+    fig = Figure()
+    ax = Axis(fig[1, 1])
+    lines!(ax, f*t_drifter, ζ₁, label = "ζ (drifter)")
+    lines!(ax, f*t_top, ζ₂, label = "ζ (top)")
+    #lines!(ax, f*t_drifter, 5e-7 * x̂, label = "x̂ (drifter)", linestyle = :dot)
+    #lines!(ax, f*t_drifter, 5e-7 * ŷ, label = "ŷ (drifter)", linestyle = :dot)
+    display(fig)
+
+end
+
+function naive_advection_at_top(file_data, x, y, i) # i ≠ iter
+
+    ζ = FieldTimeSeries("raw_data/"*label*"_BI_xy.jld2", "ζ")[i]
+    u = FieldTimeSeries("raw_data/"*label*"_BI_xy.jld2", "u")[i]
+    adv_field = @at (Face, Face, Center) u * ∂x(ζ)
+    return grid_interpolate(file_data, (i, j) -> adv_field[i, j, 1], x, y, i)
+    
+end
+
+function plot_ζ_balance_3(drifter_num, ftlim₁ = nothing, ftlim₂ = nothing, legendPos = :lb)
+    # RELIES ON THE fact that the drifter data is
+    # output at the same time as the top data
+
+    t, drifters = get_drifter_data(label)
+    drifter = drifters[drifter_num]
+    section = Int64[]
+    ftlim₁ = isnothing(ftlim₁) ? f * t[2] : maximum([ftlim₁, f * t[2]])
+    ftlim₂ = isnothing(ftlim₂) ? f * t[end-1] : minimum([ftlim₂, f * t[end-1]])
+    for (i, t) in enumerate(t)
+        if ftlim₁ < f * t < ftlim₂ push!(section, i) end
+    end
+
+    file_data = topdata(label)
+    file = file_data.file
+    @info length(t)
+    iterations = parse.(Int, keys(file["timeseries/t"]))
+    @info length(iterations)
+    iterations = iterations[section] # WRONG AND BAD?
+    t = t[section]
+    F_ζ_hor = [grid_interpolate(file_data, "F_ζ_hor", drifter[section[i]].x, drifter[section[i]].y, iterations[i]) for i in eachindex(iterations)]
+    F_ζ_vrt = [grid_interpolate(file_data, "F_ζ_vrt", drifter[section[i]].x, drifter[section[i]].y, iterations[i]) for i in eachindex(iterations)]
+    ζ_tendency = [grid_interpolate(file_data, "ζ_tendency", drifter[section[i]].x, drifter[section[i]].y, iterations[i]) for i in eachindex(iterations)]
+    ζ_adv = [grid_interpolate(file_data, "ζ_adv", drifter[section[i]].x, drifter[section[i]].y, iterations[i]) for i in eachindex(iterations)]
+    ζ_adv_naive = [naive_advection_at_top(file_data, drifter[section[i]].x, drifter[section[i]].y, section[i]) for i in eachindex(iterations)]
+   #ζ_h_adv = [grid_interpolate(file_data, "ζ_h_adv", drifter[section[i]].x, drifter[section[i]].y, iterations[i]) for i in eachindex(iterations)]
+    #ζ_v_adv = ζ_adv - ζ_h_adv
+    ζ_visc = [grid_interpolate(file_data, "ζ_visc", drifter[section[i]].x, drifter[section[i]].y, iterations[i]) for i in eachindex(iterations)]
+    ζ_err = [grid_interpolate(file_data, "ζ_err", drifter[section[i]].x, drifter[section[i]].y, iterations[i]) for i in eachindex(iterations)]
+    ζ_cor = [grid_interpolate(file_data, "ζ_cor", drifter[section[i]].x, drifter[section[i]].y, iterations[i]) for i in eachindex(iterations)]
+    ζ = [grid_interpolate(file_data, "ζ", drifter[section[i]].x, drifter[section[i]].y, iterations[i]) for i in eachindex(iterations)]
+
+    t = smooth_timeseries(t)
+    F_ζ_hor = smooth_timeseries(F_ζ_hor)
+    F_ζ_vrt = smooth_timeseries(F_ζ_vrt)
+    ζ_tendency = smooth_timeseries(ζ_tendency)
+    ζ_adv = smooth_timeseries(ζ_adv)
+    ζ_adv_naive
+    #ζ_h_adv = smooth_timeseries(ζ_h_adv)
+    #ζ_v_adv = ζ_adv - ζ_h_adv
+    ζ_visc = smooth_timeseries(ζ_visc)
+    ζ_err = smooth_timeseries(ζ_err)
+    ζ_cor = smooth_timeseries(ζ_cor)
+    ζ = smooth_timeseries(ζ)
+    Dₜζ = [(i == 1 || i == length(ζ)) ? 0 : (ζ[i+1] - ζ[i-1]) / (2(t[i+1]-t[i-1])) for i in 1:length(ζ)]
+
+
+    fig = Figure()
+    ax = Axis(fig[1, 1])
+    lines!(ax, f*t, ζ_tendency + ζ_adv)# + ζ_err)
+    lines!(ax, f*t, ζ_tendency + ζ_adv_naive)# + ζ_err)
+    lines!(ax, f*t, F_ζ_hor + F_ζ_vrt + ζ_cor + ζ_visc - ζ_err)# - ζ_v_adv)
+    lines!(ax, f*t, F_ζ_hor, linestyle = :dash, label = "F_ζ_hor")
+    lines!(ax, f*t, F_ζ_vrt, linestyle = :dash, label = "F_ζ_vrt")
+    lines!(ax, f*t, ζ_cor, linestyle = :dash, label = "ζ_cor")
+    lines!(ax, f*t, ζ_visc, linestyle = :dash, label = "ζ_visc")
+    # lines!(ax, f*t, ζ_adv, linestyle = :dash, label = "ζ_adv")
+    lines!(ax, f*t, -ζ_err, linestyle = :dash, label = "ζ_err", color = :black)
+    #lines!(ax, f*t, -ζ_v_adv, linestyle = :dash, label = "ζ_v_adv")
+    lines!(ax, f*t, f*ζ, linestyle = :dot, label = L"\zeta f")
+    lines!(ax, f*t, Dₜζ, label = L"D\zeta/Dt")
+    #xlims!(ax, xlim₁, xlim₂)
+    axislegend(position = legendPos)
+    display(fig)
+
+    ζ_calc = (ζ[2]+ζ[1])/2 .+ (t[2]-t[1]) * [sum((ζ_tendency + ζ_adv)[1:i]) for i in 1:length(ζ_tendency)]
+    fig = Figure()
+    ax = Axis(fig[1, 1])
+    lines!(f*t, ζ)
+    lines!(ax, f*t, ζ_calc)
+    display(fig)
+
+    #=
+    Dₜζ_direct = (ζ[2:end] - ζ[1:end-1]) ./ (t[2:end] - t[1:end-1])
+    ft_tween = f * (t[2:end] + t[1:end-1]) / 2
+    Dₜζ_calc = ζ_tendency + ζ_adv + ζ_err
+    Dₜζ_calc = (Dₜζ_calc[2:end] + Dₜζ_calc[1:end-1]) / 2
+    fig = Figure()
+    ax = Axis(fig[1, 1])
+    lines!(ax, ft_tween, Dₜζ_calc)
+    lines!(ax, ft_tween, Dₜζ_direct)
+    display(fig)=#
+
 end
 
 function ζ_δ(drifter, section)
@@ -548,6 +763,7 @@ function ani_drifters(label::String, drifter, section)     # Animate drifters at
     ζ_err = ζ_err_func.(drifter[s])
     ζ_adv = ζ_adv_func.(drifter[s])
     ζ_tendency = ζ_tendency_func.(drifter[s])
+    ζ_visc = ζ_visc_func.(drifter[s])
     # new ↑
     ζ_vert_adv = vert_adv_ζ.(drifter[s])
     Fδ_hor = F_hor_δ.(drifter[s])*δ_mult^2
@@ -572,6 +788,7 @@ function ani_drifters(label::String, drifter, section)     # Animate drifters at
     ζ_err = smooth_timeseries(ζ_err)
     ζ_adv = smooth_timeseries(ζ_adv)
     ζ_tendency = smooth_timeseries(ζ_tendency)
+    ζ_visc = smooth_timeseries(ζ_visc)
     # new ↑
     Fδ_hor = smooth_timeseries(Fδ_hor)
     Fδ_Cor = smooth_timeseries(Fδ_Cor)
@@ -580,17 +797,19 @@ function ani_drifters(label::String, drifter, section)     # Animate drifters at
     Vδ_mix = smooth_timeseries(Vδ_mix)
 
     ax_ζ = Axis(fig[2, 1:3], height = 200)
-    lines!(ax_ζ, ft, Fζ_hor, label = "horizontal")
+    #=lines!(ax_ζ, ft, Fζ_hor, label = "horizontal")
     lines!(ax_ζ, ft, Fζ_vrt, label = "vertical")
     lines!(ax_ζ, ft, Fζ_Cor, label = "Coriolis")
     lines!(ax_ζ, ft, Hζ_mix, label = "mixing")
     lines!(ax_ζ, ft, ζ_err, label = "error")
-    lines!(ax_ζ, ft, ζ_vert_adv, label = "vert. adv.")
+    lines!(ax_ζ, ft, ζ_vert_adv, label = "vert. adv.")=#
     # lines!(ax_ζ, ft, Dₜζ - (Fζ_hor + Fζ_vrt + Fζ_Cor + Hζ_mix + Vζ_mix + ζ_vert_adv), label = "discrepancy", color = :black, linestyle = :dot)
     # lines!(ax_ζ, ft, Dₜζ - (Fζ_hor + Fζ_vrt + Fζ_Cor + Hζ_mix + Vζ_mix + ζ_vert_adv + ζ_err), label = "discrepancy", color = :black, linestyle = :dot)
     lines!(ax_ζ, ft, ζ_tendency + ζ_adv - (Fζ_hor + Fζ_vrt + Fζ_Cor + Hζ_mix + Vζ_mix + ζ_vert_adv - ζ_err), label = "discrepancy", color = :black, linestyle = :dot)
+    lines!(ax_ζ, ft, ζ_tendency, label = L"\partial\zeta/\partial t")
+    lines!(ax_ζ, ft, -ζ_adv - ζ_err + Fζ_hor + Fζ_vrt + ζ_visc + Fζ_Cor, label = "ζ_tendency (mine)")
     # lines!(ax_ζ, ft, Dₜζ, label = L"D\zeta/Dt", color = :black)
-    lines!(ax_ζ, ft, ζ_tendency + ζ_adv, label = L"D\zeta/Dt", color = :black)
+    lines!(ax_ζ, ft, ζ_tendency + ζ_adv, label = L"D\zeta/Dt (mine)", color = :black)
     vlines!(ax_ζ, ft_obs, color = :black)
     axislegend(position = :lb)
     # DELTA STUFF HAS NOT BEEN UPDATED
@@ -624,7 +843,7 @@ function ani_drifters(label::String, drifter, section)     # Animate drifters at
     resize_to_layout!(fig)
     display(fig)
 
-    record(i -> frame[] = i, fig, "pretty_things/tracer_" * label * ".mp4", first_iter_index : last_iter_index, framerate = 20)
+    CairoMakie.record(i -> frame[] = i, fig, "pretty_things/tracer_" * label * ".mp4", first_iter_index : last_iter_index, framerate = 20)
     
 end
 
