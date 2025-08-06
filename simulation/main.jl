@@ -2,6 +2,6 @@
 # These numbers are defined by their base-10 logarithms
 
 include("sim.jl")
-include(ARGS[1] * "_input.jl")
+include("inputs/" * ARGS[1] * ".jl")
 
 run_sim(sim_params(), ARGS[1])

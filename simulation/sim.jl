@@ -76,9 +76,16 @@ end
 
 function run_sim(params, label)
 
-    resolution = params.res
-
     @info label
+    dir = "raw_data/" * label * "/"
+    if isdir(dir)
+        throw("Output directory for label " * label * " already exists")
+    else
+        mkdir(dir)
+        @info "Created director for simulation with label " * label
+    end
+
+    resolution = params.res
 
     phys_params, domain, ic, background, BCs = physical_quantities_from_inputs(params.Ri, params.s)
     f = phys_params.f
@@ -247,7 +254,7 @@ function run_sim(params, label)
     avg_ℬ = Field(Average(ℬ, dims = 2))
 
     # Output Lagrangian particles
-    filename = "raw_data/" * label * "_particles"
+    filename = dir * "particles"
     simulation.output_writers[:particles] =
         JLD2OutputWriter(model, (particles = model.particles,),
                                 filename = filename * ".jld2",
@@ -255,7 +262,7 @@ function run_sim(params, label)
                                 overwrite_existing = true)
 
     # Output the slice y = 0
-    filename = "raw_data/" * label * "_BI_xz"
+    filename = dir * "BI_xz"
     simulation.output_writers[:xz_slices] =
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, fζ_g),
                                 filename = filename * ".jld2",
@@ -264,7 +271,7 @@ function run_sim(params, label)
                                 overwrite_existing = true)
 
     # Output the slice z = 0
-    filename = "raw_data/" * label * "_BI_xy"
+    filename = dir * "BI_xy"
     simulation.output_writers[:xy_slices] =
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, fζ_g),
                                 filename = filename * ".jld2",
@@ -273,7 +280,7 @@ function run_sim(params, label)
                                 overwrite_existing = true)
 
     # Output the slice x = 0
-    filename = "raw_data/" * label * "_BI_yz"
+    filename = dir * "BI_yz"
     simulation.output_writers[:yz_slices] =
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, fζ_g),
                                 filename = filename * ".jld2",
@@ -282,7 +289,7 @@ function run_sim(params, label)
                                 overwrite_existing = true)
 
     # Output a horizontal slice in the middle (verticall speaking)
-    filename = "raw_data/" * label * "_BI_xy_mid"
+    filename = dir * "BI_xy_mid"
     simulation.output_writers[:xy_slices_mid] =
         JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, fζ_g),
                                 filename = filename * ".jld2",
@@ -290,14 +297,14 @@ function run_sim(params, label)
                                 schedule = TimeInterval(phys_params.T/20),
                                 overwrite_existing = true)
 
-    filename = "raw_data/" * label * "_BI_y-avg"
+    filename = dir * "BI_y-avg"
     simulation.output_writers[:xy_slices_mid] =
         JLD2OutputWriter(model, (; u̅, v̅, w̅, b̅, avg_ℬ),
                                 filename = filename * ".jld2",
                                 schedule = TimeInterval(phys_params.T/20),
                                 overwrite_existing = true)
 
-    #=filename = "raw_data/" * label * "_full"
+    #=filename = "dir * "/full"
     simulation.output_writers[:full] =
         JLD2OutputWriter(model, (; u, v, w, b),
                                 filename = filename * ".jld2",

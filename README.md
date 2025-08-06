@@ -1,6 +1,6 @@
 To use, run main.jl
 
-First, must create a small file, simulation/[name]_input.jl, containing one function, sim_params. Here is an example:
+First, must create a small file, simulation/inputs/[name].jl, containing one function, sim_params. Here is an example:
 
 function sim_params()
     Ri = 1                                  # Richardson number
@@ -15,9 +15,7 @@ function sim_params()
     return (; GPU, res, Ri, s, ν_h, ν_v, advection_scheme, horizontal_hyperviscosity, short_duration)
 end
 
-This is not tracked by git.
-
 To run the simulation, use julia to run main.jl with argument [name]:
     julia simulation/main.jl [name]
 
-Raw output data will be stored in the raw_data folder
+Raw output data will be stored in the raw_data/[name] folder

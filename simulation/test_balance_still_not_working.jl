@@ -15,7 +15,7 @@ using Oceananigans.Models.NonhydrostaticModels
 
 label = "test_extra_visc_low_res"
 
-include(label * "_input.jl")
+include("inputs/" * label * ".jl")
 include("../QOL.jl")
 include("../instabilities/modes.jl")
 include("tendies2.jl")
@@ -68,6 +68,15 @@ struct MyParticle
     ζ_adv::Float64
     ζ_h_adv::Float64
 
+end
+
+@info label
+dir = "raw_data/" * label
+if isdir(dir)
+    throw("Output directory for label " * label * " already exists")
+else
+    mkdir(dir)
+    @info "Created director for simulation with label " * label
 end
 
 params = sim_params()
@@ -321,7 +330,7 @@ b̅ = Field(Average(b, dims = 2))
 avg_ℬ = Field(Average(ℬ, dims = 2))
 
 # Output Lagrangian particles
-filename = "raw_data/" * label * "_particles"
+filename = dir * "/particles"
 simulation.output_writers[:particles] =
     JLD2OutputWriter(model, (particles = model.particles,),
                             filename = filename * ".jld2",
@@ -329,7 +338,7 @@ simulation.output_writers[:particles] =
                             overwrite_existing = true)
 
 # Output the slice y = 0
-#filename = "raw_data/" * label * "_BI_xz"
+#filename = dir * "/BI_xz"
 #simulation.output_writers[:xz_slices] =
 #    JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, fζ_g),
 #                            filename = filename * ".jld2",
@@ -338,7 +347,7 @@ simulation.output_writers[:particles] =
 #                            overwrite_existing = true)
 
 # Output the slice z = 0
-filename = "raw_data/" * label * "_BI_xy"
+filename = dir * "/BI_xy"
 simulation.output_writers[:xy_slices] =
     JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, ζ_tendency, ζ_cor, ζ_visc, ζ_err, F_ζ_hor, F_ζ_vrt, ζ_adv, ζ_h_adv, u_div𝐯, v_div𝐯, my_u_div𝐯, my_v_div𝐯),
                             filename = filename * ".jld2",
