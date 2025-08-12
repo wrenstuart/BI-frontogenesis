@@ -73,26 +73,9 @@ function grid_interpolate(data::FileData, var::String, x::Float64, y::Float64, i
 
 end
 
-function grid_nearest(data::FileData, var::String, x::Float64, y::Float64, iter::Int)       # Evaluate var at nearest gridpoint rather than interpolating
-
-    i₋ = Int(floor(x/data.Lx * data.Nx)) + 1
-    i₊ = i₋ % data.Nx + 1
-    j₋ = Int(floor(y/data.Ly * data.Ny)) + 1
-    j₊ = j₋ % data.Ny + 1
-    if x - data.x[i₋] < data.x[i₊] - x
-        i = i₋
-    else
-        i = i₊
-    end
-    if y - data.y[j₋] < data.y[j₊] - y
-        j = j₋
-    else
-        j = j₊
-    end
-
-    return data.file["timeseries/$var/$iter"][i, j, 1]
-
-end
+##############################
+# REFACTOR FROM HERE ONWARDS #
+##############################
 
 function extract_tracers(label::String) # Extracts tracer (drifter) data from file with label label. Drifters indexed by number then time (iterations) then x and y co-ordinates separately
     

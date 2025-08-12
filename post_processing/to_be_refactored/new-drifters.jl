@@ -13,6 +13,10 @@ other_mult = 1
 νₕ = 1e+1
 νᵥ = 1e-3
 
+##############################
+# REFACTOR FROM HERE ONWARDS #
+##############################
+
 function rearrange_data(label)
     in_name = "raw_data/" * label * "_particles.jld2"
     out_name = "raw_data/" * label * "_particles-rearranged.jld2"

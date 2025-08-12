@@ -17,7 +17,7 @@ using FFTW
     filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"
 
     # Read in the first iteration. We do this to load the grid
-    ζ_ic = FieldTimeSeries(filename_xy_top, "ζ₃", iterations = 0)
+    ζ_ic = FieldTimeSeries(filename_xy_top, "ζ", iterations = 0)
 
     # Load in co-ordinate arrays
     # We do this separately for each variable since Oceananigans uses a staggered grid
@@ -31,7 +31,7 @@ using FFTW
     iter = iterations_animated[Int(round(frac*length(iterations)))]
 
     # Set up observables for plotting that will update as the iteration number is updated
-    ζ_xy = file["timeseries/ζ₃/$iter"][:,:,1]
+    ζ_xy = file["timeseries/ζ/$iter"][:,:,1]
 
     # Calculate the maximum relative vorticity and buoyancy flux to set the scale for the colourmap
     ζ_max = maximum(ζ_xy)
