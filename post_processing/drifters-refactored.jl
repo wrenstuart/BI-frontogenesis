@@ -87,7 +87,7 @@ function interpolate(var::String, (ℓx, ℓy), (x₀, y₀)::Tuple{Float64, Flo
 
 end
 
-function exrtact_interpolated_drifter_data(eul_data::FileData, var::String, (ℓx, ℓy), x::Vector{Float64}, y::Vector{Float64}, drifter_t::Vector{Float64})
+function extract_interpolated_drifter_data(eul_data::FileData, var::String, (ℓx, ℓy), x::Vector{Float64}, y::Vector{Float64}, drifter_t::Vector{Float64})
     
     iterations = eul_data.iterations
     eul_t = [eul_data.file["timeseries/t/$iter"] for iter in iterations]

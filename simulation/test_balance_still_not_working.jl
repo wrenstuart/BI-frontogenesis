@@ -13,7 +13,7 @@ using Unroll
 
 using Oceananigans.Models.NonhydrostaticModels
 
-label = "test_extra_visc_low_res"
+label = "test_extra_visc_low_res_slow"
 
 include("inputs/" * label * ".jl")
 include("../QOL.jl")

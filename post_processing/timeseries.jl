@@ -24,7 +24,8 @@ function investigate_lagr_ζ_balance(label::String, drifter_num::Int64, plot_mod
     ζ_err_tracked = [tracked_drifter_data[drifter_num][i].ζ_err for i = 1 : num_iters]
     F_ζ_hor_tracked = [tracked_drifter_data[drifter_num][i].F_ζ_hor for i = 1 : num_iters]
     F_ζ_vrt_tracked = [tracked_drifter_data[drifter_num][i].F_ζ_vrt for i = 1 : num_iters]
-    ζ_adv_tracked = [tracked_drifter_data[drifter_num][i].ζ_adv for i = 1 : num_iters]    
+    ζ_adv_tracked = [tracked_drifter_data[drifter_num][i].ζ_adv for i = 1 : num_iters]
+    ζ_h_adv_tracked = [tracked_drifter_data[drifter_num][i].ζ_h_adv for i = 1 : num_iters]
     ζ_interpolated = extract_interpolated_drifter_data(eul_data, "ζ", grid_pos, x, y, t)
     ζ_tendency_interpolated = extract_interpolated_drifter_data(eul_data, "ζ_tendency", grid_pos, x, y, t)
     ζ_cor_interpolated = extract_interpolated_drifter_data(eul_data, "ζ_cor", grid_pos, x, y, t)
@@ -33,6 +34,7 @@ function investigate_lagr_ζ_balance(label::String, drifter_num::Int64, plot_mod
     F_ζ_hor_interpolated = extract_interpolated_drifter_data(eul_data, "F_ζ_hor", grid_pos, x, y, t)
     F_ζ_vrt_interpolated = extract_interpolated_drifter_data(eul_data, "F_ζ_vrt", grid_pos, x, y, t)
     ζ_adv_interpolated = extract_interpolated_drifter_data(eul_data, "ζ_adv", grid_pos, x, y, t)
+    ζ_h_adv_interpolated = extract_interpolated_drifter_data(eul_data, "ζ_h_adv", grid_pos, x, y, t)
 
     fig = Figure()
     ax = Axis(fig[1, 1])
@@ -63,4 +65,41 @@ function investigate_lagr_ζ_balance(label::String, drifter_num::Int64, plot_mod
 
 end
 
-lagr_ζ_balance(label::String)  = lagr_ζ_balance(label, 1)
+investigate_lagr_ζ_balance(label::String) = investigate_lagr_ζ_balance(label, 1)
+
+function isRoughly(x::Float64, y::Float64) :: Bool
+
+    return x * y > 0 && abs(y)/1.5 < abs(x) < 1.5abs(y)
+
+end
+
+function investigate_exceptional_times(drifter_num::Int64)
+
+    eul_data = topdata(label)
+    t, tracked_drifter_data = extract_tracked_drifter_data(label)
+    num_iters = length(tracked_drifter_data[drifter_num])
+    iterations = eul_data.iterations
+
+    x = [tracked_drifter_data[drifter_num][i].x for i = 1 : num_iters]
+    y = [tracked_drifter_data[drifter_num][i].y for i = 1 : num_iters]
+    ζ_tracked = [tracked_drifter_data[drifter_num][i].ζ for i = 1 : num_iters]
+    ζ_tendency_tracked = [tracked_drifter_data[drifter_num][i].ζ_tendency for i = 1 : num_iters]
+    ζ_cor_tracked = [tracked_drifter_data[drifter_num][i].ζ_cor for i = 1 : num_iters]
+    ζ_visc_tracked = [tracked_drifter_data[drifter_num][i].ζ_visc for i = 1 : num_iters]
+    ζ_err_tracked = [tracked_drifter_data[drifter_num][i].ζ_err for i = 1 : num_iters]
+    F_ζ_hor_tracked = [tracked_drifter_data[drifter_num][i].F_ζ_hor for i = 1 : num_iters]
+    F_ζ_vrt_tracked = [tracked_drifter_data[drifter_num][i].F_ζ_vrt for i = 1 : num_iters]
+    ζ_adv_tracked = [tracked_drifter_data[drifter_num][i].ζ_adv for i = 1 : num_iters]
+
+    for i = 2 : num_iters - 1
+        if !isRoughly(ζ_visc_tracked[i-1], ζ_visc_tracked[i]) &&
+                !isRoughly(ζ_visc_tracked[i], ζ_visc_tracked[i+1]) &&
+                20 < f*t[i] < 30
+            for j = i - 1 : i + 1
+                @info j, f*t[j]
+            end
+            println("")
+        end
+    end
+
+end
