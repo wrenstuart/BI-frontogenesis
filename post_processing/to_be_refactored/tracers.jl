@@ -15,7 +15,7 @@ f = 1e-4
 ν_v = 1e-3
 ν_h = 1e+1
 
-struct FileData     # Useful struct for storing general data associated with a file
+#=struct FileData     # Useful struct for storing general data associated with a file
 
     file::JLD2.JLDFile{JLD2.MmapIO}
     x::Vector{Float64}
@@ -39,7 +39,7 @@ function FileData(file::JLD2.JLDFile{JLD2.MmapIO}, x::Vector{Float64}, y::Vector
     Ly = y[Ny] - y[1]
     Lz = z[Nz] - z[1]
     FileData(file, x, y, z, Lx, Ly, Lz, Nx, Ny, Nz, Lx/Nx, Ly/Ny, Lz/Nz)
-end
+end=#
 
 function topdata(label::String) # Get FileData type info from "_xy_top" of file
     filename_xy_top = "raw_data/" * label * "_BI_xy" * ".jld2"

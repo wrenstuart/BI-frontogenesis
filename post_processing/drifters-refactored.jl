@@ -10,49 +10,41 @@ f = 1e-4
 
 per(i::Int64, N::Int64) :: Int64 = mod(i-1, N) + 1  # For periodic arrays
 
-label = "test_extra_visc_low_res"
+function rearrange_tracked_drifter_data(label::String)
 
-struct FileData    # Useful struct for storing general data associated with a file
+    # Takes particle data from data[iter][var][drifter_num]
+    # format to data[drifter_num][iter][var]
+    in_name = data_dir(label) * "particles.jld2"
+    out_name = data_dir(label) * "particles-rearranged.jld2"
+    if ~isfile(in_name)
+        throw("Could not find drifter data associated with label \"" * label * "\"")
+    end
+    in_file = jldopen(in_name)
+    iterations = parse.(Int, keys(in_file["timeseries/t"]))
+    t = [in_file["timeseries/t/$iter"] for iter in iterations]
+    raw_keys = keys(in_file["timeseries/particles/0"])
+    N = length(in_file["timeseries/particles/0"].x)
+        # Number of particles
+    ptcl_data = in_file["timeseries/particles"]
+    drifters = [[(; (raw_keys .=> [ptcl_data["$iter"][var][n]
+                    for var in raw_keys])...)
+                    for iter in iterations]
+                    for n = 1 : N]
+    @save out_name t drifters
 
-    file::JLD2.JLDFile{JLD2.MmapIO}
-    xᶜ::Vector{Float64}
-    xᶠ::Vector{Float64}
-    yᶜ::Vector{Float64}
-    yᶠ::Vector{Float64}
-    zᶜ::Vector{Float64}
-    zᶠ::Vector{Float64}
-    Lx::Float64
-    Ly::Float64
-    Lz::Float64
-    Nx::Int64
-    Ny::Int64
-    Nz::Int64
-    Δx::Float64
-    Δy::Float64
-    Δz::Float64
-    iterations::Vector{Int64}
-    
 end
 
-function topdata(label::String) :: FileData
+function extract_tracked_drifter_data(label)
 
-    filename_xy_top = data_dir(label) * "BI_xy.jld2"
-    file = jldopen(filename_xy_top)
-    xᶜ = file["grid/xᶜᵃᵃ"][4:end-3] # Equivalent to nodes(δ)[1] in other bits of code
-    xᶠ = file["grid/xᶠᵃᵃ"][4:end-3] # Equivalent to nodes(ζ)[1] in other bits of code
-    yᶜ = file["grid/yᵃᶜᵃ"][4:end-3]
-    yᶠ = file["grid/yᵃᶠᵃ"][4:end-3]
-    zᶜ = file["grid/zᵃᵃᶜ"][4:end-3]
-    zᶠ = file["grid/zᵃᵃᶠ"][4:end-3]
-    Nx = length(xᶜ) # (xᶠ would equally work)
-    Ny = length(yᶜ)
-    Nz = length(zᶜ)
-    Δx, Δy, Δz = (x -> x[2] - x[1]).([xᶜ, yᶜ, zᶜ])
-    Lx = Δx * Nx
-    Ly = Δy * Ny
-    Lz = Δz * Nz
-    iterations = parse.(Int64, keys(file["timeseries/t"]))
-    return FileData(file, xᶜ, xᶠ, yᶜ, yᶠ, zᶜ, zᶠ, Lx, Ly, Lz, Nx, Ny, Nz, Δx, Δy, Δz, iterations)
+    filename = data_dir(label) * "particles-rearranged.jld2"
+    if ~isfile(filename)
+        @info "Rearranging output data..."
+        rearrange_tracked_drifter_data(label)
+    end
+    file = jldopen(filename)
+    t = file["t"]
+    drifters = file["drifters"]
+    return t, drifters
 
 end
 
@@ -95,27 +87,22 @@ function interpolate(var::String, (ℓx, ℓy), (x₀, y₀)::Tuple{Float64, Flo
 
 end
 
-function ζ_tseriess(label::String)
+function exrtact_interpolated_drifter_data(eul_data::FileData, var::String, (ℓx, ℓy), x::Vector{Float64}, y::Vector{Float64}, drifter_t::Vector{Float64})
     
-    # WE ASSUME THAT BI_XY AND PARTICLE ITERATIONS ARE THE SAME
-
-    check_pp_dir(label)
-    eul_data = topdata(label)
-    ptcl_file = jldopen(data_dir(label) * "particles.jld2")
     iterations = eul_data.iterations
-
-    t = [ptcl_file["timeseries/t/$iter"] for iter in iterations]
-    x_tracked = [ptcl_file["timeseries/particles/$iter"].x[1] for iter in iterations]
-    y_tracked = [ptcl_file["timeseries/particles/$iter"].y[1] for iter in iterations]
-    ζ_tracked = [ptcl_file["timeseries/particles/$iter"].ζ[1] for iter in iterations]
-    ζ_interpolated = [interpolate("ζ", (Face(), Face()),
-                                   (x_tracked[i], y_tracked[i]), eul_data, iter)
+    eul_t = [eul_data.file["timeseries/t/$iter"] for iter in iterations]
+    if drifter_t != eul_t throw("Eulerian and Lagrangian timeseries do not match") end
+    var_interpolated = [interpolate(var, (ℓx, ℓy),
+                                   (x[i], y[i]), eul_data, iter)
                       for (i, iter) in enumerate(iterations)]
-
-    fig = Figure()
-    ax = Axis(fig[1, 1])
-    lines!(f*t, ζ_tracked)
-    lines!(f*t, ζ_interpolated)
-    display(fig)
+    return var_interpolated
 
 end
+
+#=
+TO DO:
+
+Function for general extraction of tracked Lagrangian data (including t)
+Function for general extraction of interpolated Lagrangian data (including t)
+
+=#

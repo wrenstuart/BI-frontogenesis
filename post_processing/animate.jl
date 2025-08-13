@@ -219,9 +219,9 @@ function front_detection(label, ∇b_scale = 5e-6, L_scale = 8000)
     
 end
 
-#########################
-# REFACTOR FROM HERE ON #
-#########################
+################################
+# HERE ON YET TO BE REFACTORED #
+################################
 
 function ζ_δ_lagr(label)
 

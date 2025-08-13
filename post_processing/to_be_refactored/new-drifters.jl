@@ -13,10 +13,6 @@ other_mult = 1
 νₕ = 1e+1
 νᵥ = 1e-3
 
-##############################
-# REFACTOR FROM HERE ONWARDS #
-##############################
-
 function rearrange_data(label)
     in_name = "raw_data/" * label * "_particles.jld2"
     out_name = "raw_data/" * label * "_particles-rearranged.jld2"
@@ -34,12 +30,6 @@ function rearrange_data(label)
     @save out_name t drifters
 end
 
-function drifter_keys(label)
-    filename = "raw_data/" * label * "_particles.jld2"
-    file = jldopen(filename)
-    return keys(file["timeseries/particles/0"])
-end
-
 function get_drifter_data(label)
     filename = "raw_data/" * label * "_particles-rearranged.jld2"
     if ~isfile(filename)
@@ -51,6 +41,10 @@ function get_drifter_data(label)
     drifters = file["drifters"]
     return t, drifters
 end
+
+##############################
+# REFACTOR FROM HERE ONWARDS #
+##############################
 
 label = "test_extra_visc"
 t, drifters = get_drifter_data(label)
