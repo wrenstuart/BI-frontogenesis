@@ -13,7 +13,7 @@ using Unroll
 
 using Oceananigans.Models.NonhydrostaticModels
 
-label = "test_extra_visc_low_res_slow"
+label = "test"  # Change this to change the name of the output directory
 
 include("inputs/" * label * ".jl")
 include("../QOL.jl")
@@ -60,13 +60,15 @@ struct MyParticle
     ζ::Float64
     δ::Float64
     ζ_tendency::Float64
-    ζ_cor::Float64
-    ζ_visc::Float64
-    ζ_err::Float64
-    F_ζ_hor::Float64
-    F_ζ_vrt::Float64
     ζ_adv::Float64
     ζ_h_adv::Float64
+    ζ_err::Float64
+    F_ζ_cor::Float64
+    F_ζ_hor::Float64
+    F_ζ_vrt::Float64
+    ζ_visc::Float64
+    ζ_h_visc::Float64
+    ζ_v_visc::Float64
 
 end
 
@@ -122,7 +124,7 @@ if params.GPU
     x₀, y₀ = CuArray.([x₀, y₀])
 end
 O = params.GPU ? () -> CuArray(zeros(n^2)) : () -> zeros(n^2)
-particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
+particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
 
 @inline function ∂²zᵃᵃᶠ_top(i, j, k, grid, u)
     δz² = Δzᶠᶠᶜ(i, j, k, grid)^2
@@ -199,7 +201,7 @@ other_args = (advection_scheme = params.advection_scheme(),
               diffusivities = diffusivities,
               hydrostatic_pressure = pHY′)
 
-@inline u_tendency_op = KernelFunctionOperation{Face, Center, Center}(u_tendency_func, grid, other_args)
+#=@inline u_tendency_op = KernelFunctionOperation{Face, Center, Center}(u_tendency_func, grid, other_args)
 @inline u_cor_op      = KernelFunctionOperation{Face, Center, Center}(u_cor_func,      grid, other_args)
 @inline u_visc_op     = KernelFunctionOperation{Face, Center, Center}(u_visc_func,     grid, other_args)
 @inline u_err_op      = KernelFunctionOperation{Face, Center, Center}(u_err_func,      grid, other_args)
@@ -231,26 +233,30 @@ compute!(ζ_cor)
 compute!(ζ_visc)
 compute!(ζ_err)
 my_u_div𝐯  = Field(my_u_div𝐯_op)
-my_v_div𝐯  = Field(my_v_div𝐯_op)
+my_v_div𝐯  = Field(my_v_div𝐯_op)=#
 
-#=@inline ζ_tendency_op = KernelFunctionOperation{Face, Face, Center}(ζ_tendency_func, grid, other_args)
+@inline ζ_tendency_op = KernelFunctionOperation{Face, Face, Center}(ζ_tendency_func, grid, other_args)
+@inline ζ_adv_op      = KernelFunctionOperation{Face, Face, Center}(ζ_adv_func,      grid, other_args)
+@inline ζ_h_adv_op    = KernelFunctionOperation{Face, Face, Center}(ζ_h_adv_func,    grid, other_args)
+@inline ζ_err_op      = KernelFunctionOperation{Face, Face, Center}(ζ_err_func,      grid, other_args)
+@inline F_ζ_cor_op    = KernelFunctionOperation{Face, Face, Center}(F_ζ_cor_func,    grid, other_args)
+@inline F_ζ_hor_op    = KernelFunctionOperation{Face, Face, Center}(F_ζ_hor_func,    grid, other_args)
+@inline F_ζ_vrt_op    = KernelFunctionOperation{Face, Face, Center}(F_ζ_vrt_func,    grid, other_args)
+@inline ζ_visc_op     = KernelFunctionOperation{Face, Face, Center}(ζ_visc_func,     grid, other_args)
+@inline ζ_h_visc_op   = KernelFunctionOperation{Face, Face, Center}(ζ_h_visc_func,   grid, other_args)
+@inline ζ_v_visc_op   = KernelFunctionOperation{Face, Face, Center}(ζ_v_visc_func,   grid, other_args)
 ζ_tendency = Field(ζ_tendency_op)
-@inline ζ_cor_op = KernelFunctionOperation{Face, Face, Center}(ζ_cor_func, grid, other_args)
-ζ_cor = Field(ζ_cor_op)
-@inline ζ_visc_op = KernelFunctionOperation{Face, Face, Center}(ζ_visc_func, grid, other_args)
-ζ_visc = Field(ζ_visc_op)
-@inline ζ_err_op = KernelFunctionOperation{Face, Face, Center}(ζ_err_func, grid, other_args)
-ζ_err = Field(ζ_err_op)=#
-@inline F_ζ_hor_op = KernelFunctionOperation{Face, Face, Center}(F_ζ_hor_func, grid, other_args)
-@inline F_ζ_vrt_op = KernelFunctionOperation{Face, Face, Center}(F_ζ_vrt_func, grid, other_args)
-@inline ζ_adv_op = KernelFunctionOperation{Face, Face, Center}(ζ_adv_func, grid, other_args)
-@inline ζ_h_adv_op = KernelFunctionOperation{Face, Face, Center}(ζ_h_adv_func, grid, other_args)
-F_ζ_hor = Field(F_ζ_hor_op)
-F_ζ_vrt = Field(F_ζ_vrt_op)
-ζ_adv = Field(ζ_adv_op)
-ζ_h_adv = Field(ζ_h_adv_op)
+ζ_adv      = Field(ζ_adv_op)
+ζ_h_adv    = Field(ζ_h_adv_op)
+ζ_err      = Field(ζ_err_op)
+F_ζ_cor    = Field(F_ζ_cor_op)
+F_ζ_hor    = Field(F_ζ_hor_op)
+F_ζ_vrt    = Field(F_ζ_vrt_op)
+ζ_visc     = Field(ζ_visc_op)
+ζ_h_visc   = Field(ζ_h_visc_op)
+ζ_v_visc   = Field(ζ_v_visc_op)
 
-auxiliary_fields = (; ζ, δ, ζ_tendency, ζ_cor, ζ_visc, ζ_err, F_ζ_hor, F_ζ_vrt, ζ_adv, ζ_h_adv)
+auxiliary_fields = (; ζ, δ, ζ_tendency, ζ_adv, ζ_h_adv, ζ_err, F_ζ_cor, F_ζ_hor, F_ζ_vrt, ζ_visc, ζ_h_visc, ζ_v_visc)
 drifter_fields = auxiliary_fields
 
 function fix_particle_below_surface(lagrangian_particles, model, Δt)
@@ -349,11 +355,23 @@ simulation.output_writers[:particles] =
 # Output the slice z = 0
 filename = dir * "/BI_xy"
 simulation.output_writers[:xy_slices] =
-    JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, ζ_tendency, ζ_cor, ζ_visc, ζ_err, F_ζ_hor, F_ζ_vrt, ζ_adv, ζ_h_adv, u_div𝐯, v_div𝐯, my_u_div𝐯, my_v_div𝐯),
+    JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, ζ_tendency, ζ_adv, ζ_h_adv, ζ_err, F_ζ_cor, F_ζ_hor, F_ζ_vrt, ζ_visc, ζ_h_visc, ζ_v_visc),
                             filename = filename * ".jld2",
                             indices = (:, :, resolution[3]),
                             schedule = TimeInterval(phys_params.T/30),
                             overwrite_existing = true)
+
+# simulation.output_writers[:checkpointer] = Checkpointer(model, schedule=IterationInterval(2000), prefix="model_checkpoint")
+# get scalarindex gpu error when add above line
+
+#=filename = dir * "/full"
+simulation.output_writers[:full] =
+    JLD2OutputWriter(model, (; u, v, w, b, p),
+                            filename = filename * ".jld2",
+                            schedule = TimeInterval(duration),
+                            overwrite_existing = true)=#
+
+# better way to reload from previous point when on GPU
 
 nothing # hide
 

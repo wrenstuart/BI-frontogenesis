@@ -97,7 +97,7 @@ function generate_ic(Ri, L, U; N = 50, H = 50)
     w_modes = []
     b_modes = []
     # ~, ~, ~, ~, σ₀ = least_stable_mode(Ri, 4π/L, 0, N = N)
-    for i = 0:10, j = 0:10
+    for i = -10:10, j = -10:10
         if !(i == 0 && j == 0)
             k = i * 2π/L
             l = j * 2π/L
