@@ -3,7 +3,7 @@ include("drifters-refactored.jl")
 
 label = "new_zeta_balance2"
 
-function investigate_lagr_ζ_balance(label::String, drifter_num::Int64, plot_mode = "interpolated")
+function investigate_lagr_ζ_balance(label::String, drifter_num::Int64, plot_mode = "tracked")
     
     # WE ASSUME THAT BI_XY AND PARTICLE ITERATIONS ARE THE SAME
     # This plots the various terms affecting the Lagrangian change in ζ,
