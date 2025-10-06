@@ -7,7 +7,7 @@ function investigate_lagr_ζ_balance(label::String, drifter_num::Int64, plot_mod
     
     # WE ASSUME THAT BI_XY AND PARTICLE ITERATIONS ARE THE SAME
     # This plots the various terms affecting the Lagrangian change in ζ,
-    # following particles as we do so. "tracked" uses particle-tracked data,
+    # following particles as we do so. "tracked" mode uses particle-tracked data,
     # while "interpolated" looks at the Eulerian fields saved at the top and
     # interpolates them onto the particles in post-processing
 
@@ -69,6 +69,42 @@ function investigate_lagr_ζ_balance(label::String, drifter_num::Int64, plot_mod
             F_ζ_cor_interpolated + ζ_visc_interpolated + F_ζ_hor_interpolated + F_ζ_vrt_interpolated),
             label = "residual")
     end
+    ylims!(ax, -lim, lim)
+    axislegend(position=:lb)
+    display(fig)
+
+end
+
+function plot_lagr_ζ_balance(label::String, drifter_num::Int64)
+
+    check_pp_dir(label)
+    t, tracked_drifter_data = extract_tracked_drifter_data(label)
+    num_iters = length(tracked_drifter_data[drifter_num])
+
+    ζ_tendency_tracked = [tracked_drifter_data[drifter_num][i].ζ_tendency for i = 1 : num_iters]
+    F_ζ_cor_tracked = [tracked_drifter_data[drifter_num][i].F_ζ_cor for i = 1 : num_iters]
+    ζ_visc_tracked = [tracked_drifter_data[drifter_num][i].ζ_visc for i = 1 : num_iters]
+    ζ_h_visc_tracked = [tracked_drifter_data[drifter_num][i].ζ_h_visc for i = 1 : num_iters]
+    ζ_v_visc_tracked = [tracked_drifter_data[drifter_num][i].ζ_v_visc for i = 1 : num_iters]
+    ζ_err_tracked = [tracked_drifter_data[drifter_num][i].ζ_err for i = 1 : num_iters]
+    F_ζ_hor_tracked = [tracked_drifter_data[drifter_num][i].F_ζ_hor for i = 1 : num_iters]
+    F_ζ_vrt_tracked = [tracked_drifter_data[drifter_num][i].F_ζ_vrt for i = 1 : num_iters]
+    ζ_adv_tracked = [tracked_drifter_data[drifter_num][i].ζ_adv for i = 1 : num_iters]
+
+    fig = Figure()
+    ax = Axis(fig[1, 1])
+    lim = 5e-7
+    lines!(f*t, ζ_tendency_tracked + ζ_adv_tracked + ζ_err_tracked, label = L"\mathrm{D}\zeta/\mathrm{D}t")
+    lines!(f*t, F_ζ_cor_tracked, label = L"\zeta_\text{Cor}")
+    lines!(f*t, ζ_v_visc_tracked, label = L"\zeta_\text{visc,v}")
+    lines!(f*t, ζ_h_visc_tracked, label = L"\zeta_\text{visc,h}")
+    lines!(f*t, F_ζ_hor_tracked, label = L"F_{\zeta,\text{hor}}")
+    lines!(f*t, F_ζ_vrt_tracked, label = L"F_{\zeta,\text{vrt}}")
+    lines!(f*t, ζ_tendency_tracked + ζ_adv_tracked + ζ_err_tracked - (
+        F_ζ_cor_tracked + ζ_v_visc_tracked + ζ_h_visc_tracked + F_ζ_hor_tracked + F_ζ_vrt_tracked),
+        label = "residual", color = :black)
+    lines!(f*t, ζ_err_tracked, label = L"\zeta_{\text{err}}", color = :black, linestyle = :dot)
+    lim = maximum([maximum(abs.(ζ_visc_tracked)), maximum(abs.(F_ζ_hor_tracked))])
     ylims!(ax, -lim, lim)
     axislegend(position=:lb)
     display(fig)

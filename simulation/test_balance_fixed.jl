@@ -1,4 +1,4 @@
-# NOT RESOLVED
+# Resolved!
 
 using Printf
 using Oceananigans
@@ -13,7 +13,7 @@ using Unroll
 
 using Oceananigans.Models.NonhydrostaticModels
 
-label = "test"  # Change this to change the name of the output directory
+label = "test_no_submerge"  # Change this to change the name of the output directory
 
 include("inputs/" * label * ".jl")
 include("../QOL.jl")
@@ -141,11 +141,11 @@ b, = tracers
 pHY′ = CenterField(grid)
 pNHS = CenterField(grid)
 
-# Intermediary terms:
 p = pHY′ + pNHS
-u_y = ∂y(u)
-v_y = ∂y(v)
+ζ = ∂x(v) - ∂y(u)
+δ = ∂x(u) + ∂y(v)
 
+#=
 # To store as auxiliary fields
 u_x = ∂x(u)
 v_x = ∂x(v)
@@ -176,7 +176,7 @@ b_yzz = Field(b_yzz_op)
 
 my_ζ_visc = params.ν_h * ∇ₕ²ζ + params.ν_v * my_ζ_zz
 my_ζ_cor = -ζ*δ
-my_ζ_hor = -f*δ
+my_ζ_hor = -f*δ=#
 
 u_back = Field{Face, Center, Center}(grid)
 v_back = Field{Center, Face, Center}(grid)
@@ -200,40 +200,6 @@ other_args = (advection_scheme = params.advection_scheme(),
               tracers = tracers,
               diffusivities = diffusivities,
               hydrostatic_pressure = pHY′)
-
-#=@inline u_tendency_op = KernelFunctionOperation{Face, Center, Center}(u_tendency_func, grid, other_args)
-@inline u_cor_op      = KernelFunctionOperation{Face, Center, Center}(u_cor_func,      grid, other_args)
-@inline u_visc_op     = KernelFunctionOperation{Face, Center, Center}(u_visc_func,     grid, other_args)
-@inline u_err_op      = KernelFunctionOperation{Face, Center, Center}(u_err_func,      grid, other_args)
-@inline u_div𝐯_op     = KernelFunctionOperation{Face, Center, Center}(u_div𝐯_func,     grid, other_args)
-@inline v_tendency_op = KernelFunctionOperation{Center, Face, Center}(v_tendency_func, grid, other_args)
-@inline v_cor_op      = KernelFunctionOperation{Center, Face, Center}(v_cor_func,      grid, other_args)
-@inline v_visc_op     = KernelFunctionOperation{Center, Face, Center}(v_visc_func,     grid, other_args)
-@inline v_err_op      = KernelFunctionOperation{Center, Face, Center}(v_err_func,      grid, other_args)
-@inline v_div𝐯_op     = KernelFunctionOperation{Center, Face, Center}(v_div𝐯_func,     grid, other_args)
-@inline my_u_div𝐯_op  = KernelFunctionOperation{Face, Center, Center}(my_u_div𝐯_func,  grid, other_args)
-@inline my_v_div𝐯_op  = KernelFunctionOperation{Center, Face, Center}(my_v_div𝐯_func,  grid, other_args)
-u_tendency = Field(u_tendency_op)
-u_cor      = Field(u_cor_op)
-u_visc     = Field(u_visc_op)
-u_err      = Field(u_err_op)
-u_div𝐯     = Field(u_div𝐯_op)
-v_tendency = Field(v_tendency_op)
-v_cor      = Field(v_cor_op)
-v_visc     = Field(v_visc_op)
-v_err      = Field(v_err_op)
-v_div𝐯     = Field(v_div𝐯_op)
-ζ_tendency = ∂x(v_tendency) - ∂y(u_tendency)
-ζ_cor      = ∂x(v_cor)      - ∂y(u_cor)
-ζ_visc     = ∂x(v_visc)     - ∂y(u_visc)
-ζ_err      = ∂x(v_err)      - ∂y(u_err)
-# ζ_div𝐯     = ∂x(v_div𝐯)     - ∂y(u_div𝐯)        # 𝐳̂⋅∇×(∇⋅(𝐮𝐮))
-compute!(ζ_tendency)
-compute!(ζ_cor)
-compute!(ζ_visc)
-compute!(ζ_err)
-my_u_div𝐯  = Field(my_u_div𝐯_op)
-my_v_div𝐯  = Field(my_v_div𝐯_op)=#
 
 @inline ζ_tendency_op = KernelFunctionOperation{Face, Face, Center}(ζ_tendency_func, grid, other_args)
 @inline ζ_adv_op      = KernelFunctionOperation{Face, Face, Center}(ζ_adv_func,      grid, other_args)
@@ -355,7 +321,7 @@ simulation.output_writers[:particles] =
 # Output the slice z = 0
 filename = dir * "/BI_xy"
 simulation.output_writers[:xy_slices] =
-    JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, ζ_tendency, ζ_adv, ζ_h_adv, ζ_err, F_ζ_cor, F_ζ_hor, F_ζ_vrt, ζ_visc, ζ_h_visc, ζ_v_visc),
+    JLD2OutputWriter(model, (; u, v, w, b, p, ζ, δ),
                             filename = filename * ".jld2",
                             indices = (:, :, resolution[3]),
                             schedule = TimeInterval(phys_params.T/30),

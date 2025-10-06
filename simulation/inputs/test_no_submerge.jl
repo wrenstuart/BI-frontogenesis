@@ -8,6 +8,6 @@ function sim_params()
     advection_scheme = CenteredSecondOrder
     horizontal_hyperviscosity = false
     short_duration = false
-    fix_drifters_below_surface = true
+    fix_drifters_below_surface = false
     return (; GPU, res, Ri, s, ν_h, ν_v, advection_scheme, horizontal_hyperviscosity, short_duration, fix_drifters_below_surface)
 end

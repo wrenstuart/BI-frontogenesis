@@ -370,16 +370,6 @@ function vtcl_curl_func(u_func, v_func)
 end
 
 @inline F_ζ_cor_func_alt = vtcl_curl_func(u_cor_func, v_cor_func)
-# Seems to give same result as F_ζ_cor_func
-
-#=function F_ζ_cor_func_alt(i, j, k, grid, other_args)
-
-    u_cor_f = (i, j, k) -> u_cor_func(i, j, k, grid, other_args)
-    v_cor_f = (i, j, k) -> v_cor_func(i, j, k, grid, other_args)
-
-    return ∂xᶠᵃᵃ_f(grid, v_cor_f)(i, j, k) - ∂yᵃᶠᵃ_f(grid, u_cor_f)(i, j, k)
-
-end=#
 
 @inline ζ_visc_func = vtcl_curl_func(u_visc_func, v_visc_func)
 
