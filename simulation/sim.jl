@@ -56,18 +56,29 @@ struct MyParticle
     ζ::Float64
     δ::Float64
 
-    ζ_tendency::Float64     # ζₜ
-    ζ_adv::Float64          # 𝐮⋅∇ζ
-    ζ_h_adv::Float64        # 𝐮⋅∇ₕζ (do we need this??)
+    # Lagrangian ζ LHS:
+    ζ_tendency::Float64     # 𝜁ₜ
+    ζ_adv::Float64          # 𝐮⋅∇𝜁
     ζ_err::Float64          # 𝐳̂⋅∇×(∇⋅(𝐮𝐮)-𝐮⋅∇𝐮)
-    # ^ 0 in the continuum limit but non-0 when discretised
-    F_ζ_cor::Float64        # -δf
-    F_ζ_hor::Float64        # -δζ
-    F_ζ_vrt::Float64        # 𝐳̂⋅(𝚲×∇w)
-    ζ_h_visc::Float64       # νₕ∇ₕ²ζ
-    ζ_v_visc::Float64       # νᵥ∂²ζ/∂z²
-    ζ_visc::Float64         # 𝒟ζ (sum of two above)
-    # ζₜ + 𝐮⋅∇ζ + ζ_err = - δf - δζ + F_ζ_vrt + ζ_visc
+    # ^ vanishes in the continuum limit but non-0 when discretised
+    # Lagrangian ζ RHS:
+    F_ζ_hor::Float64        # -𝛿𝜁
+    F_ζ_vrt::Float64        # -𝐳̂⋅(∇𝑤×𝚲)
+    F_ζ_cor::Float64        # -𝛿𝑓
+    ζ_h_visc::Float64       # νₕ∇ₕ²𝜁
+    ζ_v_visc::Float64       # νᵥ∂²𝜁/∂𝑧²
+
+    # Lagrangian δ LHS:
+    δ_tendency::Float64     # 𝛿ₜ
+    δ_adv::Float64          # 𝐮⋅∇𝛿
+    δ_err::Float64          # ∇ₕ⋅∇(∇⋅(𝐮𝐮)-𝐮⋅∇𝐮) (c.f. ζ_err)
+    # Lagrangian δ RHS:
+    F_δ_hor::Float64        # -(∇ₕ𝐮ₕ):(∇ₕ𝐮ₕ)ᵀ
+    F_δ_vrt::Float64        # -∇ₕ𝑤⋅𝚲
+    F_δ_cor::Float64        # 𝑓𝜁
+    F_δ_prs::Float64        # -∇ₕ²𝑝 ( = -𝑓𝜁_g)
+    δ_h_visc::Float64       # νₕ∇ₕ²𝛿
+    δ_v_visc::Float64       # νᵥ∂²𝛿/∂𝑧²
 
 end
 
@@ -123,7 +134,7 @@ function run_sim(params, label)
         x₀, y₀ = CuArray.([x₀, y₀])
     end
     O = params.GPU ? () -> CuArray(zeros(n_d^2)) : () -> zeros(n_d^2)
-    particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
+    particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
 
     @inline function ∂²zᵃᵃᶠ_top(i, j, k, grid, u)
         δz² = Δzᶠᶠᶜ(i, j, k, grid)^2
@@ -169,36 +180,50 @@ function run_sim(params, label)
 
     @inline ζ_tendency_op = KernelFunctionOperation{Face, Face, Center}(ζ_tendency_func, grid, other_args)
     @inline ζ_adv_op      = KernelFunctionOperation{Face, Face, Center}(ζ_adv_func,      grid, other_args)
-    @inline ζ_h_adv_op    = KernelFunctionOperation{Face, Face, Center}(ζ_h_adv_func,    grid, other_args)
     @inline ζ_err_op      = KernelFunctionOperation{Face, Face, Center}(ζ_err_func,      grid, other_args)
-    @inline F_ζ_cor_op    = KernelFunctionOperation{Face, Face, Center}(F_ζ_cor_func,    grid, other_args)
     @inline F_ζ_hor_op    = KernelFunctionOperation{Face, Face, Center}(F_ζ_hor_func,    grid, other_args)
     @inline F_ζ_vrt_op    = KernelFunctionOperation{Face, Face, Center}(F_ζ_vrt_func,    grid, other_args)
-    @inline ζ_visc_op     = KernelFunctionOperation{Face, Face, Center}(ζ_visc_func,     grid, other_args)
+    @inline F_ζ_cor_op    = KernelFunctionOperation{Face, Face, Center}(F_ζ_cor_func,    grid, other_args)
     @inline ζ_h_visc_op   = KernelFunctionOperation{Face, Face, Center}(ζ_h_visc_func,   grid, other_args)
     @inline ζ_v_visc_op   = KernelFunctionOperation{Face, Face, Center}(ζ_v_visc_func,   grid, other_args)
+    @inline δ_tendency_op = KernelFunctionOperation{Face, Face, Center}(δ_tendency_func, grid, other_args)
+    @inline δ_adv_op      = KernelFunctionOperation{Face, Face, Center}(δ_adv_func,      grid, other_args)
+    @inline δ_err_op      = KernelFunctionOperation{Face, Face, Center}(δ_err_func,      grid, other_args)
+    @inline F_δ_hor_op    = KernelFunctionOperation{Face, Face, Center}(F_δ_hor_func,    grid, other_args)
+    @inline F_δ_vrt_op    = KernelFunctionOperation{Face, Face, Center}(F_δ_vrt_func,    grid, other_args)
+    @inline F_δ_cor_op    = KernelFunctionOperation{Face, Face, Center}(F_δ_cor_func,    grid, other_args)
+    @inline F_δ_prs_op    = KernelFunctionOperation{Face, Face, Center}(F_δ_prs_func,    grid, other_args)
+    @inline δ_h_visc_op   = KernelFunctionOperation{Face, Face, Center}(δ_h_visc_func,   grid, other_args)
+    @inline δ_v_visc_op   = KernelFunctionOperation{Face, Face, Center}(δ_v_visc_func,   grid, other_args)
     ζ_tendency = Field(ζ_tendency_op)
     ζ_adv      = Field(ζ_adv_op)
-    ζ_h_adv    = Field(ζ_h_adv_op)
     ζ_err      = Field(ζ_err_op)
-    F_ζ_cor    = Field(F_ζ_cor_op)
     F_ζ_hor    = Field(F_ζ_hor_op)
     F_ζ_vrt    = Field(F_ζ_vrt_op)
-    ζ_visc     = Field(ζ_visc_op)
+    F_ζ_cor    = Field(F_ζ_cor_op)
     ζ_h_visc   = Field(ζ_h_visc_op)
     ζ_v_visc   = Field(ζ_v_visc_op)
+    δ_tendency = Field(δ_tendency_op)
+    δ_adv      = Field(δ_adv_op)
+    δ_err      = Field(δ_err_op)
+    F_δ_hor    = Field(F_δ_hor_op)
+    F_δ_vrt    = Field(F_δ_vrt_op)
+    F_δ_cor    = Field(F_δ_cor_op)
+    F_δ_prs    = Field(F_δ_prs_op)
+    δ_h_visc   = Field(δ_h_visc_op)
+    δ_v_visc   = Field(δ_v_visc_op)
 
-    auxiliary_fields = (; ζ, δ, ζ_tendency, ζ_adv, ζ_h_adv, ζ_err, F_ζ_cor, F_ζ_hor, F_ζ_vrt, ζ_visc, ζ_h_visc, ζ_v_visc)
+    auxiliary_fields = (; ζ, δ, ζ_tendency, ζ_adv, ζ_err, F_ζ_hor, F_ζ_vrt, F_ζ_cor, ζ_h_visc, ζ_v_visc, δ_tendency, δ_adv, δ_err, F_δ_hor, F_δ_vrt, F_δ_cor, F_δ_prs, δ_h_visc, δ_v_visc)
     drifter_fields = auxiliary_fields
 
-    function fix_particle_below_surface(lagrangian_particles, model, Δt)
+    #=function fix_particle_below_surface(lagrangian_particles, model, Δt)
         lagrangian_particles.properties.z .= -domain.z / 2resolution[3]
     end
     if params.fix_drifters_below_surface
         lagrangian_drifters = LagrangianParticles(particles; tracked_fields = drifter_fields, dynamics = fix_particle_below_surface)
-    else
+    else=#
         lagrangian_drifters = LagrangianParticles(particles; tracked_fields = drifter_fields)
-    end
+    #end
 
     # Remember to use CuArray instead of regular Array when storing particle locations and properties on the GPU?????
 

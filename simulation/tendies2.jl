@@ -101,6 +101,8 @@ a2f(arr) = array_to_function(arr)
 @inline ∂z²_f(grid, f::Function) = (i, j, k) -> δzᵃᵃᶠ(δzᵃᵃᶜ(f))(i, j, k) / (grid.Δzᵃᵃᶜ * grid.Δzᵃᵃᶠ)
 @inline ∇ₕ²_f(grid, f::Function) = add(∂x²_f(grid, f::Function), ∂y²_f(grid, f::Function))
 
+
+
 @inline function u_tendency_func_full(
     i, j, k,
     grid,
@@ -162,13 +164,9 @@ end
     tracers = a.tracers
     diffusivities = a.diffusivities
     hydrostatic_pressure = a.hydrostatic_pressure
-
     return u_tendency_func_full(i, j, k, grid, advection_scheme, coriolis, closure, buoyancy,
-                            background_fields, velocities, tracers, diffusivities,
-                            hydrostatic_pressure)
-    
+                            background_fields, velocities, tracers, diffusivities, hydrostatic_pressure)
 end
-
 @inline function v_tendency_func(i, j, k, grid, other_args)
     a = other_args
     advection_scheme = a.advection_scheme
@@ -180,45 +178,34 @@ end
     tracers = a.tracers
     diffusivities = a.diffusivities
     hydrostatic_pressure = a.hydrostatic_pressure
-
     return v_tendency_func_full(i, j, k, grid, advection_scheme, coriolis, closure, buoyancy,
-                            background_fields, velocities, tracers, diffusivities,
-                            hydrostatic_pressure)
-    
+                            background_fields, velocities, tracers, diffusivities, hydrostatic_pressure)
 end
-
 @inline function u_cor_func(i, j, k, grid, other_args)
-    
     a = other_args
-
     return - x_f_cross_U(i, j, k, grid, a.coriolis, a.velocities)
-    
 end
-
 @inline function v_cor_func(i, j, k, grid, other_args)
-    
     a = other_args
-
     return - y_f_cross_U(i, j, k, grid, a.coriolis, a.velocities)
-    
 end
-
 @inline function u_visc_func(i, j, k, grid, other_args)
-    
     a = other_args
     model_fields = merge(a.velocities, a.tracers)
-
     return - ∂ⱼ_τ₁ⱼ(i, j, k, grid, a.closure, a.diffusivities, clock, model_fields, a.buoyancy)
-    
 end
-
 @inline function v_visc_func(i, j, k, grid, other_args)
-    
     a = other_args
     model_fields = merge(a.velocities, a.tracers)
-
     return - ∂ⱼ_τ₂ⱼ(i, j, k, grid, a.closure, a.diffusivities, clock, model_fields, a.buoyancy)
-    
+end
+@inline function u_prs_func(i, j, k, grid, other_args)
+    a = other_args
+    return - hydrostatic_pressure_gradient_x(i, j, k, grid, a.hydrostatic_pressure)
+end
+@inline function v_prs_func(i, j, k, grid, other_args)
+    a = other_args
+    return - hydrostatic_pressure_gradient_y(i, j, k, grid, a.hydrostatic_pressure)
 end
 
 @inline function u_err_func(i, j, k, grid, other_args)   # Error from ∇⋅(𝐮u) ≠ 𝐮⋅∇u
@@ -249,7 +236,186 @@ end
 
 end
 
-@inline function u_div𝐯_func(i, j, k, grid, other_args)
+#########################
+# Lagrangian ζ tendency #
+#########################
+
+@inline function vtcl_curl_func(u_func, v_func)
+
+    return (i, j, k, grid, other_args) -> begin
+        u_f = (i, j, k) -> u_func(i, j, k, grid, other_args)
+        v_f = (i, j, k) -> v_func(i, j, k, grid, other_args)
+        ∂xᶠᵃᵃ_f(grid, v_f)(i, j, k) - ∂yᵃᶠᵃ_f(grid, u_f)(i, j, k)
+    end
+
+end
+
+@inline function F_ζ_hor_func(i, j, k, grid, other_args)
+
+    a = other_args
+    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
+    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
+    w = SumOfArrays{2}(a.velocities.w, a.background_fields.velocities.w)
+
+    return (- f̅ᶠᶠᵃ(∂xᶜᶜᶜ_f(grid, u))(i, j, k) * f̅★ᵃᵃ(∂xᶠᶠᶜ_f(grid, v))(i, j, k)
+            - f̅ᶠᶠᵃ(∂yᶜᶜᶜ_f(grid, v))(i, j, k) * f̅ᵃ★ᵃ(∂xᶠᶠᶜ_f(grid, v))(i, j, k)
+            + f̅ᶠᶠᵃ(∂xᶜᶜᶜ_f(grid, u))(i, j, k) * f̅★ᵃᵃ(∂yᶠᶠᶜ_f(grid, u))(i, j, k)
+            + f̅ᶠᶠᵃ(∂yᶜᶜᶜ_f(grid, v))(i, j, k) * f̅ᵃ★ᵃ(∂yᶠᶠᶜ_f(grid, u))(i, j, k))
+
+end
+
+@inline function F_ζ_vrt_func(i, j, k, grid, other_args)
+
+    a = other_args
+    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
+    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
+    w = SumOfArrays{2}(a.velocities.w, a.background_fields.velocities.w)
+
+    return (- f̅ᵃᶠᶜ(∂xᶠᶜᶠ_f(grid, w))(i, j, k) * f̅ᶠᵃᶜ(∂zᶜᶠᶠ_f(grid, v))(i, j, k)
+            + f̅ᶠᵃᶜ(∂yᶜᶠᶠ_f(grid, w))(i, j, k) * f̅ᵃᶠᶜ(∂zᶠᶜᶠ_f(grid, u))(i, j, k))
+    
+end
+
+@inline function ζ_adv_func(i, j, k, grid, other_args)
+
+    a = other_args
+    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
+    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
+    w = SumOfArrays{2}(a.velocities.w, a.background_fields.velocities.w)
+    ζ_f = (i, j, k) -> ∂xᶠᶠᶜ(i, j, k, grid, v) - ∂yᶠᶠᶜ(i, j, k, grid, u)
+
+    return (  f̅★ᵃᵃ(f̅ᵃᶠᵃ(u))(i, j, k) * f̅ᶠᵃᵃ(∂xᶜᵃᵃ_f(grid, ζ_f))(i, j, k)
+            + f̅ᵃ★ᵃ(f̅ᶠᵃᵃ(v))(i, j, k) * f̅ᵃᶠᵃ(∂yᵃᶜᵃ_f(grid, ζ_f))(i, j, k)
+            + f̅ᶠᶠᵃ(f̅ᵃᵃᶜ(w))(i, j, k) * f̅ᵃᵃᶜ(∂zᵃᵃᶠ_f(grid, ζ_f))(i, j, k))
+    
+end
+
+@inline function F_ζ_cor_func(i, j, k, grid, other_args)
+
+    a = other_args
+    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
+    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
+    f = a.coriolis.f
+
+    δ_f = (i, j, k) -> ∂xᶜᶜᶜ(i, j, k, grid, u) + ∂yᶜᶜᶜ(i, j, k, grid, v)
+    return - f * f̅ᶠᶠᵃ(δ_f)(i, j, k)
+    
+end
+
+@inline function ζ_h_visc_func(i, j, k, grid, other_args)
+
+    a = other_args
+    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
+    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
+    ζ_f = (i, j, k) -> ∂xᶠᶠᶜ(i, j, k, grid, v) - ∂yᶠᶠᶜ(i, j, k, grid, u)
+
+    return other_args.diffusivities[1].ν * ∇ₕ²_f(grid, ζ_f)(i, j, k)
+    
+end
+
+@inline function ζ_v_visc_func(i, j, k, grid, other_args)
+
+    a = other_args
+    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
+    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
+    ζ_f = (i, j, k) -> ∂xᶠᶠᶜ(i, j, k, grid, v) - ∂yᶠᶠᶜ(i, j, k, grid, u)
+
+    return other_args.diffusivities[2].ν * ∂z²_f(grid, ζ_f)(i, j, k)
+    
+end
+
+@inline ζ_err_func = vtcl_curl_func(u_err_func, v_err_func)
+
+@inline ζ_tendency_func = vtcl_curl_func(u_tendency_func, v_tendency_func)
+
+#########################
+# Lagrangian δ tendency #
+#########################
+
+@inline function hor_div_func(u_func, v_func)
+
+    return (i, j, k, grid, other_args) -> begin
+        u_f = (i, j, k) -> u_func(i, j, k, grid, other_args)
+        v_f = (i, j, k) -> v_func(i, j, k, grid, other_args)
+        ∂xᶜᵃᵃ_f(grid, u_f)(i, j, k) + ∂yᵃᶜᵃ_f(grid, v_f)(i, j, k)
+    end
+
+end
+
+@inline δ_tendency_func = hor_div_func(u_tendency_func, v_tendency_func)
+@inline δ_err_func      = hor_div_func(     u_err_func, v_err_func     )
+@inline F_δ_cor_func    = hor_div_func(     u_cor_func, v_cor_func     )
+@inline F_δ_prs_func   = hor_div_func(     u_prs_func, v_prs_func     )
+
+@inline function δ_h_visc_func(i, j, k, grid, other_args)
+
+    a = other_args
+    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
+    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
+    δ_f = (i, j, k) -> ∂xᶜᶜᶜ(i, j, k, grid, u) + ∂yᶜᶜᶜ(i, j, k, grid, v)
+
+    return other_args.diffusivities[1].ν * ∇ₕ²_f(grid, δ_f)(i, j, k)
+    
+end
+
+@inline function δ_v_visc_func(i, j, k, grid, other_args)
+
+    a = other_args
+    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
+    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
+    δ_f = (i, j, k) -> ∂xᶜᶜᶜ(i, j, k, grid, u) + ∂yᶜᶜᶜ(i, j, k, grid, v)
+
+    return other_args.diffusivities[2].ν * ∂z²_f(grid, δ_f)(i, j, k)
+    
+end
+
+@inline function δ_adv_func(i, j, k, grid, other_args)
+
+    a = other_args
+    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
+    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
+    w = SumOfArrays{2}(a.velocities.w, a.background_fields.velocities.w)
+    u_xx_f = ∂xᶠᵃᵃ_f(grid, ∂xᶜᶜᶜ_f(grid, u))
+    u_yx_f = ∂yᵃᶠᵃ_f(grid, ∂xᶜᶜᶜ_f(grid, u))
+    u_zx_f = ∂zᵃᵃᶠ_f(grid, ∂xᶜᶜᶜ_f(grid, u))
+    v_xy_f = ∂xᶠᵃᵃ_f(grid, ∂yᶜᶜᶜ_f(grid, v))
+    v_yy_f = ∂yᵃᶠᵃ_f(grid, ∂yᶜᶜᶜ_f(grid, v))
+    v_zy_f = ∂zᵃᵃᶠ_f(grid, ∂yᶜᶜᶜ_f(grid, v))
+
+    return (  f̅★ᵃᵃ(f̅ᶜᵃᵃ(u))(i, j, k) * f̅ᶜᵃᵃ(u_xx_f)(i, j, k)
+            + f̅★ᵃᵃ(f̅ᵃᶜᵃ(v))(i, j, k) * f̅ᵃᶜᵃ(u_yx_f)(i, j, k)
+            + f̅★ᵃᵃ(f̅ᵃᵃᶜ(w))(i, j, k) * f̅ᵃᵃᶜ(u_zx_f)(i, j, k)
+            + f̅ᵃ★ᵃ(f̅ᶜᵃᵃ(u))(i, j, k) * f̅ᶜᵃᵃ(v_xy_f)(i, j, k)
+            + f̅ᵃ★ᵃ(f̅ᵃᶜᵃ(v))(i, j, k) * f̅ᵃᶜᵃ(v_yy_f)(i, j, k)
+            + f̅ᵃ★ᵃ(f̅ᵃᵃᶜ(w))(i, j, k) * f̅ᵃᵃᶜ(v_zy_f)(i, j, k))
+
+end
+
+@inline function F_δ_hor_func(i, j, k, grid, other_args)
+
+    a = other_args
+    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
+    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
+
+    return - (  (∂xᶜᵃᵃ_f(grid, f̅★ᵃᵃ(u)))(i, j, k) ^ 2
+              + 2∂xᶜᵃᵃ_f(grid, f̅ᶠᶜᵃ(v))(i, j, k) * ∂yᵃᶜᵃ_f(grid, f̅ᶜᶠᵃ(u))(i, j, k)
+              + (∂yᵃᶜᵃ_f(grid, f̅ᵃ★ᵃ(v)))(i, j, k) ^ 2)
+    
+end
+
+@inline function F_δ_vrt_func(i, j, k, grid, other_args)
+
+    a = other_args
+    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
+    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
+    w = SumOfArrays{2}(a.velocities.w, a.background_fields.velocities.w)
+
+    return - (  ∂xᶜᵃᵃ_f(grid, f̅ᶠᵃᶜ(w))(i, j, k) * ∂zᵃᵃᶜ_f(grid, f̅ᶜᵃᶠ(u))(i, j, k)
+              + ∂yᵃᶜᵃ_f(grid, f̅ᵃᶠᶜ(w))(i, j, k) * ∂zᵃᵃᶜ_f(grid, f̅ᵃᶜᶠ(v))(i, j, k))
+
+end
+
+#=@inline function u_div𝐯_func(i, j, k, grid, other_args)
     
     a = other_args
     total_velocities = (u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u),
@@ -293,49 +459,9 @@ end
             + ∂yᵃᶠᵃ_f(grid, mult(f̅ᵃᶜᵃ(v), f̅ᵃᶜᵃ(v)))(i, j, k)
             + ∂zᵃᵃᶜ_f(grid, mult(f̅ᵃᶠᵃ(w), f̅ᵃᵃᶠ(v)))(i, j, k))
     
-end
+end=#
 
-@inline function F_ζ_hor_func(i, j, k, grid, other_args)
-
-    a = other_args
-    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
-    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
-    w = SumOfArrays{2}(a.velocities.w, a.background_fields.velocities.w)
-
-    return (- f̅ᶠᶠᵃ(∂xᶜᶜᶜ_f(grid, u))(i, j, k) * f̅★ᵃᵃ(∂xᶠᶠᶜ_f(grid, v))(i, j, k)
-            - f̅ᶠᶠᵃ(∂yᶜᶜᶜ_f(grid, v))(i, j, k) * f̅ᵃ★ᵃ(∂xᶠᶠᶜ_f(grid, v))(i, j, k)
-            + f̅ᶠᶠᵃ(∂xᶜᶜᶜ_f(grid, u))(i, j, k) * f̅★ᵃᵃ(∂yᶠᶠᶜ_f(grid, u))(i, j, k)
-            + f̅ᶠᶠᵃ(∂yᶜᶜᶜ_f(grid, v))(i, j, k) * f̅ᵃ★ᵃ(∂yᶠᶠᶜ_f(grid, u))(i, j, k))
-
-end
-
-@inline function F_ζ_vrt_func(i, j, k, grid, other_args)
-
-    a = other_args
-    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
-    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
-    w = SumOfArrays{2}(a.velocities.w, a.background_fields.velocities.w)
-
-    return (- f̅ᵃᶠᶜ(∂xᶠᶜᶠ_f(grid, w))(i, j, k) * f̅ᶠᵃᶜ(∂zᶜᶠᶠ_f(grid, v))(i, j, k)
-            + f̅ᶠᵃᶜ(∂yᶜᶠᶠ_f(grid, w))(i, j, k) * f̅ᵃᶠᶜ(∂zᶠᶜᶠ_f(grid, u))(i, j, k))
-    
-end
-
-@inline function ζ_adv_func(i, j, k, grid, other_args)
-
-    a = other_args
-    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
-    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
-    w = SumOfArrays{2}(a.velocities.w, a.background_fields.velocities.w)
-    ζ_f = (i, j, k) -> ∂xᶠᶠᶜ(i, j, k, grid, v) - ∂yᶠᶠᶜ(i, j, k, grid, u)
-
-    return (  f̅★ᵃᵃ(f̅ᵃᶠᵃ(u))(i, j, k) * f̅ᶠᵃᵃ(∂xᶜᵃᵃ_f(grid, ζ_f))(i, j, k)
-            + f̅ᵃ★ᵃ(f̅ᶠᵃᵃ(v))(i, j, k) * f̅ᵃᶠᵃ(∂yᵃᶜᵃ_f(grid, ζ_f))(i, j, k)
-            + f̅ᶠᶠᵃ(f̅ᵃᵃᶜ(w))(i, j, k) * f̅ᵃᵃᶜ(∂zᵃᵃᶠ_f(grid, ζ_f))(i, j, k))
-    
-end
-
-@inline function ζ_h_adv_func(i, j, k, grid, other_args)
+#=@inline function ζ_h_adv_func(i, j, k, grid, other_args)
 
     a = other_args
     u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
@@ -345,56 +471,4 @@ end
     return (  f̅★ᵃᵃ(f̅ᵃᶠᵃ(u))(i, j, k) * f̅ᶠᵃᵃ(∂xᶜᵃᵃ_f(grid, ζ_f))(i, j, k)
             + f̅ᵃ★ᵃ(f̅ᶠᵃᵃ(v))(i, j, k) * f̅ᵃᶠᵃ(∂yᵃᶜᵃ_f(grid, ζ_f))(i, j, k))
     
-end
-
-function F_ζ_cor_func(i, j, k, grid, other_args)
-
-    a = other_args
-    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
-    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
-    f = a.coriolis.f
-
-    δ_f = (i, j, k) -> ∂xᶜᶜᶜ(i, j, k, grid, u) + ∂yᶜᶜᶜ(i, j, k, grid, v)
-    return - f * f̅ᶠᶠᵃ(δ_f)(i, j, k)
-    
-end
-
-function vtcl_curl_func(u_func, v_func)
-
-    return (i, j, k, grid, other_args) -> begin
-        u_f = (i, j, k) -> u_func(i, j, k, grid, other_args)
-        v_f = (i, j, k) -> v_func(i, j, k, grid, other_args)
-        ∂xᶠᵃᵃ_f(grid, v_f)(i, j, k) - ∂yᵃᶠᵃ_f(grid, u_f)(i, j, k)
-    end
-
-end
-
-@inline F_ζ_cor_func_alt = vtcl_curl_func(u_cor_func, v_cor_func)
-
-@inline ζ_visc_func = vtcl_curl_func(u_visc_func, v_visc_func)
-
-@inline function ζ_h_visc_func(i, j, k, grid, other_args)
-
-    a = other_args
-    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
-    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
-    ζ_f = (i, j, k) -> ∂xᶠᶠᶜ(i, j, k, grid, v) - ∂yᶠᶠᶜ(i, j, k, grid, u)
-
-    return other_args.diffusivities[1].ν * ∇ₕ²_f(grid, ζ_f)(i, j, k)
-    
-end
-
-@inline function ζ_v_visc_func(i, j, k, grid, other_args)
-
-    a = other_args
-    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
-    v = SumOfArrays{2}(a.velocities.v, a.background_fields.velocities.v)
-    ζ_f = (i, j, k) -> ∂xᶠᶠᶜ(i, j, k, grid, v) - ∂yᶠᶠᶜ(i, j, k, grid, u)
-
-    return other_args.diffusivities[2].ν * ∂z²_f(grid, ζ_f)(i, j, k)
-    
-end
-
-@inline ζ_err_func = vtcl_curl_func(u_err_func, v_err_func)
-
-@inline ζ_tendency_func = vtcl_curl_func(u_tendency_func, v_tendency_func)
+end=#
