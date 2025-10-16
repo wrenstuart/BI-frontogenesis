@@ -39,8 +39,12 @@ function ani_xy(label::String, a::Float64, b::Float64)  # Animate b, ζ and δ a
     # Now, open the file with our data
     file = jldopen(filename_xy_top)
 
+    # Extract the values that iter can take
+    iterations = parse.(Int, keys(file["timeseries/t"]))
+
     # Set up observables for plotting that will update as the iteration number is updated
     iter = Observable(0)
+    iter_index = lift(iter -> findfirst(x -> x == iter, iterations), iter)
     ζ_xy = lift(iter -> file["timeseries/ζ/$iter"][:, :, 1], iter)
     ζ_on_f = lift(iter -> ζ_xy[]/f, iter)
     # δ = lift(iter -> file["timeseries/δ/$iter"][:, :, 1], iter)
@@ -48,9 +52,6 @@ function ani_xy(label::String, a::Float64, b::Float64)  # Animate b, ζ and δ a
     b_xy = lift(iter -> file["timeseries/b/$iter"][:, :, 1], iter)
     t = lift(iter -> file["timeseries/t/$iter"], iter)   # Time elapsed by this iteration
     str_ft = lift(t -> ft_display(t), t)
-
-    # Extract the values that iter can take
-    iterations = parse.(Int, keys(file["timeseries/t"]))
 
     # Calculate the maximum relative vorticity and buoyancy to set the scale for the colourmap
     ζ_max = 0
@@ -61,16 +62,23 @@ function ani_xy(label::String, a::Float64, b::Float64)  # Animate b, ζ and δ a
     end
     ζ_max = minimum([ζ_max, 20f])
 
+    iter[] = 0
+    ~, drifters = extract_tracked_drifter_data(label)
+    @info length(t)
+    @info length(iterations)
+    xs = lift(iter_index -> [drifters[i][iter_index].x for i in eachindex(drifters)], iter_index)
+    ys = lift(iter_index -> [drifters[i][iter_index].y for i in eachindex(drifters)], iter_index)
+
     @info "Drawing first frame"
 
     # Create the plot, starting at t = 0
     # This will be updated as the observable iter is updated
-    iter[] = 0
     fig = Figure(size = (950, 320))
     ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b", width = 200, height = 200)
     ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f", width = 200, height = 200)
     ax_δ = Axis(fig[1, 3][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Horizontal divergence, }\delta/f", width = 200, height = 200)
     hm_b = heatmap!(ax_b, xb/1kilometer, yb/1kilometer, b_xy; colorrange = (-0.5*b_max, 1.5*b_max));
+    #sc_b = scatter!(ax_b, xs, ys, marker = '.', markersize = 15, color = :black, transparency = true)
     hm_ζ = heatmap!(ax_ζ, xζ/1kilometer, yζ/1kilometer, ζ_on_f; colormap = :coolwarm, colorrange = (-ζ_max/f, ζ_max/f))
     hm_δ = heatmap!(ax_δ, xδ/1kilometer, yδ/1kilometer, δ_on_f; colormap = :coolwarm, colorrange = (-ζ_max/f, ζ_max/f))
     Colorbar(fig[1, 1][1, 2], hm_b, height = 200)
@@ -216,6 +224,54 @@ function front_detection(label, ∇b_scale = 5e-6, L_scale = 8000)
            pp_dir(label) * "top-fdetect.mp4",
            frames,
            framerate = 20)
+    
+end
+
+function ani_drifters(label::String)
+    t_drifters, drifters = get_drifter_data(label)
+    ani_drifters(label, drifters[1])
+end
+
+function ani_drifters(label::String, drifter)     # Quite different to pre-re-factored function of same name
+    
+    fig = Figure(size = (950, 950))
+
+    data = topdata(label)
+    iterations = parse.(Int, keys(data.file["timeseries/t"]))
+    t_drifters, ~ = extract_tracked_drifter_data(label)
+    ft = f * t_drifters
+
+    frame = Observable(1)
+    iter = lift(i -> iterations[i], frame)
+    t_obs = lift(iter -> data.file["timeseries/t/$iter"], iter)
+    ζ_on_f = lift(i -> data.file["timeseries/ζ/$i"][:, :, 1]/f, iter)
+    δ_on_f = lift(i -> data.file["timeseries/δ/$i"][:, :, 1]/f, iter)
+    b = lift(i -> data.file["timeseries/b/$i"][:, :, 1], iter)
+    i_drifter = lift(t -> argmin(abs.(t_drifters .- t)), t_obs)
+    ft_obs = lift(i -> ft[i], i_drifter)
+    tracers_now_x = lift(i -> drifter[i].x/1e3, i_drifter)
+    tracers_now_y = lift(i -> drifter[i].y/1e3, i_drifter)
+
+    b_ic = data.file["timeseries/b/0"][:, :, 1]
+    b_max = maximum(b_ic)
+
+    ax_ζ = Axis(fig[1, 1][1, 1], aspect = 1)
+    hm_ζ = heatmap!(ax_ζ, data.xᶠ/1e3, data.yᶠ/1e3, ζ_on_f, colormap = :coolwarm, colorrange = (-20, 20), height = 200);
+    scatter!(ax_ζ, tracers_now_x, tracers_now_y, marker = '.', markersize = 15, color = :black)
+    Colorbar(fig[1, 1][1, 2], hm_ζ, height = 200)
+    ax_δ = Axis(fig[1, 2][1, 1], aspect = 1)
+    hm_δ = heatmap!(ax_δ, data.xᶜ/1e3, data.yᶜ/1e3, δ_on_f, colormap = :coolwarm, colorrange = (-20, 20), height = 200);
+    scatter!(ax_δ, tracers_now_x, tracers_now_y, marker = '.', markersize = 15, color = :black)
+    Colorbar(fig[1, 2][1, 2], hm_δ, height = 200)
+    ax_b = Axis(fig[1, 3][1, 1], aspect = 1)
+    hm_b = heatmap!(ax_b, data.xᶜ/1e3, data.yᶜ/1e3, b, colorrange = (-0.5b_max, 1.5b_max), height = 200);
+    scatter!(ax_b, tracers_now_x, tracers_now_y, marker = '.', markersize = 15, color = :black)
+    Colorbar(fig[1, 3][1, 2], hm_b, height = 200)
+    
+    resize_to_layout!(fig)
+    display(fig)
+
+    CairoMakie.record(i -> frame[] = i, fig, "pretty_things/tracer_" * label * ".mp4", 1 : length(iterations), framerate = 20)
     
 end
 

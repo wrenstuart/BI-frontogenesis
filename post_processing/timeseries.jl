@@ -3,7 +3,7 @@ include("drifters-refactored.jl")
 
 label = "new_zeta_balance2"
 
-function investigate_lagr_ζ_balance(label::String, drifter_num::Int64, plot_mode = "tracked")
+#=function investigate_lagr_ζ_balance(label::String, drifter_num::Int64, plot_mode = "tracked")
     
     # WE ASSUME THAT BI_XY AND PARTICLE ITERATIONS ARE THE SAME
     # This plots the various terms affecting the Lagrangian change in ζ,
@@ -73,14 +73,19 @@ function investigate_lagr_ζ_balance(label::String, drifter_num::Int64, plot_mod
     axislegend(position=:lb)
     display(fig)
 
-end
+end=#
 
 function plot_lagr_ζ_balance(label::String, drifter_num::Int64)
 
     check_pp_dir(label)
     t, tracked_drifter_data = extract_tracked_drifter_data(label)
+    i₀ = argmin(abs.(t .- 15/f))
+    i₁ = argmin(abs.(t .- 20/f))
+    t = t[i₀:i₁]
+    tracked_drifter_data = [tracked_drifter_data[n][i₀:i₁] for n in eachindex(tracked_drifter_data)]
     num_iters = length(tracked_drifter_data[drifter_num])
 
+    ζ          = [tracked_drifter_data[drifter_num][i].ζ          for i = 1 : num_iters]
     ζ_tendency = [tracked_drifter_data[drifter_num][i].ζ_tendency for i = 1 : num_iters]
     ζ_adv      = [tracked_drifter_data[drifter_num][i].ζ_adv      for i = 1 : num_iters]
     ζ_err      = [tracked_drifter_data[drifter_num][i].ζ_err      for i = 1 : num_iters]
@@ -92,18 +97,21 @@ function plot_lagr_ζ_balance(label::String, drifter_num::Int64)
 
     fig = Figure()
     ax = Axis(fig[1, 1])
-    lim = 5e-7
-    lines!(f*t, ζ_tendency + ζ_adv + ζ_err, label = L"\mathrm{D}\zeta/\mathrm{D}t")
+    lim = 1e-7
+    lines!(f*t, ζ_tendency + ζ_adv + ζ_err, label = L"\mathrm{D}\zeta/\mathrm{D}t", color = :black, linestlye = :dash)
     lines!(f*t, F_ζ_hor,  label = L"F_{\zeta,\text{hor}}")
     lines!(f*t, F_ζ_vrt,  label = L"F_{\zeta,\text{vrt}}")
     lines!(f*t, F_ζ_cor,  label = L"\zeta_\text{Cor}")
     lines!(f*t, ζ_h_visc, label = L"\zeta_\text{visc,h}")
     lines!(f*t, ζ_v_visc, label = L"\zeta_\text{visc,v}")
-    lines!(f*t, ζ_tendency + ζ_adv + ζ_err - (
+    #=lines!(f*t, ζ_tendency + ζ_adv + ζ_err - (
         F_ζ_cor + ζ_v_visc + ζ_h_visc + F_ζ_hor + F_ζ_vrt),
-        label = "residual", color = :black)
+        label = "residual", color = :black)=#
     lines!(f*t, ζ_err, label = L"\zeta_{\text{err}}", color = :black, linestyle = :dot)
-    lim = maximum([maximum(abs.(ζ_h_visc)), maximum(abs.(F_ζ_hor))])
+    lines!(f*t, f*ζ, label = L"f\zeta", color = :black, linestyle = :dash)
+    lim = maximum([maximum(abs.(ζ_tendency)), maximum(abs.(ζ_adv)),
+        maximum(abs.(ζ_err)), maximum(abs.(F_ζ_hor)), maximum(abs.(F_ζ_vrt)),
+        maximum(abs.(F_ζ_cor)), maximum(abs.(ζ_h_visc)), maximum(abs.(ζ_v_visc))])
     ylims!(ax, -lim, lim)
     axislegend(position=:lb)
     display(fig)
@@ -114,8 +122,12 @@ function plot_lagr_δ_balance(label::String, drifter_num::Int64)
 
     check_pp_dir(label)
     t, tracked_drifter_data = extract_tracked_drifter_data(label)
+    i₀ = argmin(abs.(t .- 16/f))
+    t = t[i₀:end]
+    tracked_drifter_data = [tracked_drifter_data[n][i₀:end] for n in eachindex(tracked_drifter_data)]
     num_iters = length(tracked_drifter_data[drifter_num])
 
+    δ          = [tracked_drifter_data[drifter_num][i].δ          for i = 1 : num_iters]
     δ_tendency = [tracked_drifter_data[drifter_num][i].δ_tendency for i = 1 : num_iters]
     δ_adv      = [tracked_drifter_data[drifter_num][i].δ_adv      for i = 1 : num_iters]
     δ_err      = [tracked_drifter_data[drifter_num][i].δ_err      for i = 1 : num_iters]
@@ -140,9 +152,13 @@ function plot_lagr_δ_balance(label::String, drifter_num::Int64)
         F_δ_cor + δ_v_visc + δ_h_visc + F_δ_hor + F_δ_vrt + F_δ_prs),
         label = "residual", color = :black)
     lines!(f*t, δ_err, label = L"\delta_{\text{err}}", color = :black, linestyle = :dot)
-    lim = maximum([maximum(abs.(δ_h_visc)), maximum(abs.(F_δ_hor))])
+    lines!(f*t, f*δ, label = L"f\delta", color = :black, linestyle = :dash)
+    lim = maximum([maximum(abs.(δ_tendency)), maximum(abs.(δ_adv)),
+        maximum(abs.(δ_err)), maximum(abs.(F_δ_hor)), maximum(abs.(F_δ_vrt)),
+        maximum(abs.(F_δ_cor)), maximum(abs.(F_δ_prs)), maximum(abs.(δ_h_visc)),
+        maximum(abs.(δ_v_visc))])
     ylims!(ax, -lim, lim)
-    axislegend(position=:lb)
+    axislegend(position=:rb)
     display(fig)
 
 end
@@ -157,31 +173,34 @@ function investigate_lagr_ζ_balance2(label::String, drifter_num::Int64)
     eul_data = topdata(label)
     t, tracked_drifter_data = extract_tracked_drifter_data(label)
     num_iters = length(tracked_drifter_data[drifter_num])
-    iterations = eul_data.iterations
 
-    grid_pos = (Face(), Face())
-
-    x = [tracked_drifter_data[drifter_num][i].x for i = 1 : num_iters]
-    y = [tracked_drifter_data[drifter_num][i].y for i = 1 : num_iters]
     ζ_tracked = [tracked_drifter_data[drifter_num][i].ζ for i = 1 : num_iters]
     ζ_tendency_tracked = [tracked_drifter_data[drifter_num][i].ζ_tendency for i = 1 : num_iters]
-    ζ_visc_tracked = [tracked_drifter_data[drifter_num][i].ζ_visc for i = 1 : num_iters]
     ζ_err_tracked = [tracked_drifter_data[drifter_num][i].ζ_err for i = 1 : num_iters]
-    F_ζ_hor_tracked = [tracked_drifter_data[drifter_num][i].F_ζ_hor for i = 1 : num_iters]
     ζ_adv_tracked = [tracked_drifter_data[drifter_num][i].ζ_adv for i = 1 : num_iters]
-    ζ_h_adv_tracked = [tracked_drifter_data[drifter_num][i].ζ_h_adv for i = 1 : num_iters]
 
-    Dₜζ = ζ_tendency_tracked + ζ_h_adv_tracked + ζ_err_tracked
-    ∫Dₜζ = [sum([(Dₜζ[j]+Dₜζ[j+1])/2 * (t[j+1]-t[j]) for j = 1 : i]) for i = 1 : length(t)-1]
-    ζ = (ζ_tracked[1:end-1] + ζ_tracked[2:end]) / 2
+    mean(xs::Vector{Float64}) = (xs[1:end-1] + xs[2:end]) / 2
+    Δ(xs::Vector{Float64}) = xs[2:end] - xs[1:end-1]
+
+    Dₜζ_interp = ζ_tendency_tracked + ζ_adv_tracked + ζ_err_tracked
+    Δt = Δ(t)
+    ∫Dₜζ_interp = [sum([(Dₜζ_interp[j]+Dₜζ_interp[j+1])/2 * Δt[j] for j = 1 : i]) for i = 1 : length(t)-1]
+    Dₜζ_lagr = Δ(ζ_tracked) ./ Δt
+    ζ̅ = mean(ζ_tracked)
     t̅ = (t[1:end-1] + t[2:end]) / 2
 
     fig = Figure()
     ax = Axis(fig[1, 1])
-    lines!(f*t̅, ζ)
-    lines!(f*t̅, ∫Dₜζ)
-    lines!(f*t̅, ∫Dₜζ-ζ)
-    lim = maximum([maximum(abs.(∫Dₜζ)), maximum(abs.(ζ_tracked))])
+    #=lines!(f*t̅, ζ̅)
+    lines!(f*t̅, ∫Dₜζ_interp)
+    lines!(f*t̅, ∫Dₜζ_interp-ζ̅)
+    lim = maximum([maximum(abs.(∫Dₜζ_interp)), maximum(abs.(ζ_tracked))])=#
+    #lines!(f*t̅, mean(Dₜζ_interp))
+    #lines!(f*t̅, Dₜζ_lagr)
+    #lim = maximum([maximum(abs.(Dₜζ_lagr)), maximum(abs.(Dₜζ_interp))])
+    lines!(f*t̅, abs.(mean(Dₜζ_interp)) ./ (abs.(mean(Dₜζ_interp)) + abs.(Dₜζ_lagr)))
+    lines!(f*t̅, abs.(ζ̅) ./ (abs.(ζ̅) + abs.(∫Dₜζ_interp)))
+    lim = 1
     ylims!(ax, -lim, lim)
     display(fig)
 

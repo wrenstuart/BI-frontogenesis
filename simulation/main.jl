@@ -1,5 +1,5 @@
-# Define sets of Richardson numbers (Ri) and isopycnal slopes (α) over which to iterate
-# These numbers are defined by their base-10 logarithms
+# This is all written for Oceananigans v0.90.6
+# Note: 512×512×64 sims take up 6247MiB of memory
 
 const n_d = 20      # for n_d×n_d array of drifters
 include("sim.jl")
