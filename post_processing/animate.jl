@@ -62,7 +62,6 @@ function ani_xy(label::String, a::Float64, b::Float64)  # Animate b, ζ and δ a
 
     iter[] = 0
     ~, drifters = extract_tracked_drifter_data(label)
-    @info length(t)
     @info length(iterations)
     xs = lift(iter_index -> [drifters[i][iter_index].x for i in eachindex(drifters)], iter_index)
     ys = lift(iter_index -> [drifters[i][iter_index].y for i in eachindex(drifters)], iter_index)
