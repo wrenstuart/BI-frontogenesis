@@ -45,9 +45,7 @@ function ani_xy(label::String, a::Float64, b::Float64)  # Animate b, ζ and δ a
     # Set up observables for plotting that will update as the iteration number is updated
     iter = Observable(0)
     iter_index = lift(iter -> findfirst(x -> x == iter, iterations), iter)
-    ζ_xy = lift(iter -> file["timeseries/ζ/$iter"][:, :, 1], iter)
-    ζ_on_f = lift(iter -> ζ_xy[]/f, iter)
-    # δ = lift(iter -> file["timeseries/δ/$iter"][:, :, 1], iter)
+    ζ_on_f = lift(iter -> file["timeseries/ζ/$iter"][:, :, 1]/f, iter)
     δ_on_f = lift(iter -> file["timeseries/δ/$iter"][:, :, 1]/f, iter)
     b_xy = lift(iter -> file["timeseries/b/$iter"][:, :, 1], iter)
     t = lift(iter -> file["timeseries/t/$iter"], iter)   # Time elapsed by this iteration
@@ -58,7 +56,7 @@ function ani_xy(label::String, a::Float64, b::Float64)  # Animate b, ζ and δ a
     b_max = maximum(b_ic)
     for i = Int(round(length(iterations)/10)) : length(iterations)
         iter[] = iterations[i]
-        ζ_max = maximum([ζ_max, maximum(ζ_xy[])])
+        ζ_max = maximum([ζ_max, maximum(ζ_on_f[]*f)])
     end
     ζ_max = minimum([ζ_max, 20f])
 
@@ -68,6 +66,8 @@ function ani_xy(label::String, a::Float64, b::Float64)  # Animate b, ζ and δ a
     @info length(iterations)
     xs = lift(iter_index -> [drifters[i][iter_index].x for i in eachindex(drifters)], iter_index)
     ys = lift(iter_index -> [drifters[i][iter_index].y for i in eachindex(drifters)], iter_index)
+    xs_dspl = lift(xs -> xs/1kilometer, xs)
+    ys_dspl = lift(ys -> ys/1kilometer, ys)
 
     @info "Drawing first frame"
 
@@ -78,9 +78,11 @@ function ani_xy(label::String, a::Float64, b::Float64)  # Animate b, ζ and δ a
     ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f", width = 200, height = 200)
     ax_δ = Axis(fig[1, 3][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Horizontal divergence, }\delta/f", width = 200, height = 200)
     hm_b = heatmap!(ax_b, xb/1kilometer, yb/1kilometer, b_xy; colorrange = (-0.5*b_max, 1.5*b_max));
-    #sc_b = scatter!(ax_b, xs, ys, marker = '.', markersize = 15, color = :black, transparency = true)
+    sc_b = scatter!(ax_b, xs_dspl, ys_dspl, marker = '.', markersize = 15, color = :black, transparency = true)
     hm_ζ = heatmap!(ax_ζ, xζ/1kilometer, yζ/1kilometer, ζ_on_f; colormap = :coolwarm, colorrange = (-ζ_max/f, ζ_max/f))
+    sc_ζ = scatter!(ax_ζ, xs_dspl, ys_dspl, marker = '.', markersize = 15, color = :black, transparency = true)
     hm_δ = heatmap!(ax_δ, xδ/1kilometer, yδ/1kilometer, δ_on_f; colormap = :coolwarm, colorrange = (-ζ_max/f, ζ_max/f))
+    sc_δ = scatter!(ax_δ, xs_dspl, ys_dspl, marker = '.', markersize = 15, color = :black, transparency = true)
     Colorbar(fig[1, 1][1, 2], hm_b, height = 200)
     Colorbar(fig[1, 2][1, 2], hm_ζ, height = 200)
     Colorbar(fig[1, 3][1, 2], hm_δ, height = 200)
