@@ -24,7 +24,7 @@ function physical_quantities_from_inputs(Ri, s)
     # Set the viscosities
 
     # Set the domain size
-    Lx = 2 * 2π * p.L * 0.4^0.5 # Zonal extent, set to 2 wavelengths of the most unstable mode
+    Lx = 2π * p.L * 0.4^0.5 # Zonal extent, set to 2 wavelengths of the most unstable mode
     Ly = Lx                     # Meridional extent
     Lz = p.H                    # Vertical extent
 
@@ -100,7 +100,7 @@ function run_sim(params, label)
 
     # Set the time-stepping parameters
     max_Δt = 0.4 * pi / (phys_params.N²^0.5)
-    duration = 20 / real(least_stable_mode(params.Ri, 4π/domain.x, 0, rate_only = true))
+    duration = 10 / real(least_stable_mode(params.Ri, 2π/domain.x, 0, rate_only = true))
     if params.short_duration
         duration = duration / 20
     end
@@ -253,7 +253,11 @@ function run_sim(params, label)
     # The TimeStepWizard manages the time-step adaptively, keeping the
     # Courant-Freidrichs-Lewy (CFL) number close to `1.0` while ensuring
     # the time-step does not increase beyond the maximum allowable value
-    wizard = TimeStepWizard(cfl = 0.5, max_change = 1.1, max_Δt = max_Δt)
+    if :diffusive_cfl in keys(params)
+        wizard = TimeStepWizard(cfl = 0.5, diffusive_cfl = params.diffusive_cfl, max_change = 1.1, max_Δt = max_Δt)
+    else
+        wizard = TimeStepWizard(cfl = 0.5, max_change = 1.1, max_Δt = max_Δt)
+    end
 
     # Still some numerical noise at CFL 0.1 for Ri = 10⁴, but none for CFL = 0.05
 

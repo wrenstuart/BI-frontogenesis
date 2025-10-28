@@ -102,7 +102,7 @@ function generate_ic(Ri, L, U; N = 50, H = 50)
             k = i * 2π/L
             l = j * 2π/L
             û, v̂, ŵ, b̂, σ = least_stable_mode(Ri, k, l, N = N)
-            A = U * ((i==2 && j==0) ? 0.03 : 0.0005 * rand() * exp(2π*im*rand()))
+            A = U * ((i==1 && j==0) ? 0.03 : 0.0005 * rand() * exp(2π*im*rand()))
             # A = U * 0.01 * 10000^(real(σ)/real(σ₀) - 1) * exp(2π*im*rand())
             # @info i, j, real(σ)/real(σ₀) - 1
             push!(u_modes, ((k, l), A * û))
