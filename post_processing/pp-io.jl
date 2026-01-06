@@ -38,8 +38,8 @@ function topdata(label::String) :: FileData
     xᶠ = file["grid/xᶠᵃᵃ"][4:end-3] # Equivalent to nodes(ζ)[1] in other bits of code
     yᶜ = file["grid/yᵃᶜᵃ"][4:end-3]
     yᶠ = file["grid/yᵃᶠᵃ"][4:end-3]
-    zᶜ = file["grid/zᵃᵃᶜ"][4:end-3]
-    zᶠ = file["grid/zᵃᵃᶠ"][4:end-3]
+    zᶜ = file["grid/z/cᵃᵃᶜ"][4:end-3]
+    zᶠ = file["grid/z/cᵃᵃᶠ"][4:end-3]
     Nx = length(xᶜ) # (xᶠ would equally work)
     Ny = length(yᶜ)
     Nz = length(zᶜ)

@@ -90,15 +90,15 @@ a2f(arr) = array_to_function(arr)
 @inline ∂xᶠᵃᵃ_f(grid, f::Function) = (i, j, k) -> δxᶠᵃᵃ(f)(i, j, k) / grid.Δxᶠᵃᵃ
 @inline ∂yᵃᶜᵃ_f(grid, f::Function) = (i, j, k) -> δyᵃᶜᵃ(f)(i, j, k) / grid.Δyᵃᶜᵃ
 @inline ∂yᵃᶠᵃ_f(grid, f::Function) = (i, j, k) -> δyᵃᶠᵃ(f)(i, j, k) / grid.Δyᵃᶠᵃ
-@inline ∂zᵃᵃᶜ_f(grid, f::Function) = (i, j, k) -> δzᵃᵃᶜ(f)(i, j, k) / grid.Δzᵃᵃᶜ
-@inline ∂zᵃᵃᶠ_f(grid, f::Function) = (i, j, k) -> δzᵃᵃᶠ(f)(i, j, k) / grid.Δzᵃᵃᶠ
+@inline ∂zᵃᵃᶜ_f(grid, f::Function) = (i, j, k) -> δzᵃᵃᶜ(f)(i, j, k) / grid.z.Δᵃᵃᶜ
+@inline ∂zᵃᵃᶠ_f(grid, f::Function) = (i, j, k) -> δzᵃᵃᶠ(f)(i, j, k) / grid.z.Δᵃᵃᶠ
 
 @inline add(f::Function, g::Function) = (i, j, k) -> f(i, j, k) + g(i, j, k)
 @inline mult(f::Function, g::Function) = (i, j, k) -> f(i, j, k) * g(i, j, k)
 
 @inline ∂x²_f(grid, f::Function) = (i, j, k) -> δxᶠᵃᵃ(δxᶜᵃᵃ(f))(i, j, k) / (grid.Δxᶜᵃᵃ * grid.Δxᶠᵃᵃ)
 @inline ∂y²_f(grid, f::Function) = (i, j, k) -> δyᵃᶠᵃ(δyᵃᶜᵃ(f))(i, j, k) / (grid.Δyᵃᶜᵃ * grid.Δyᵃᶠᵃ)
-@inline ∂z²_f(grid, f::Function) = (i, j, k) -> δzᵃᵃᶠ(δzᵃᵃᶜ(f))(i, j, k) / (grid.Δzᵃᵃᶜ * grid.Δzᵃᵃᶠ)
+@inline ∂z²_f(grid, f::Function) = (i, j, k) -> δzᵃᵃᶠ(δzᵃᵃᶜ(f))(i, j, k) / (grid.z.Δᵃᵃᶜ * grid.z.Δᵃᵃᶠ)
 @inline ∇ₕ²_f(grid, f::Function) = add(∂x²_f(grid, f::Function), ∂y²_f(grid, f::Function))
 
 

@@ -48,7 +48,7 @@ function extract_tracked_drifter_data(label)
 
 end
 
-function nearby_gridpoints(::Face, Δx::Float64, Nx::Int64, x₀::Float64) :: Tuple{Int64, Int64, Float64}
+function nearby_gridpoints(::Face, Δx::AbstractFloat, Nx::Int64, x₀::AbstractFloat) :: Tuple{Int64, Int64, Float64}
 
     # Finds gridpoint indices either side of x₀ on a periodic 1D Face grid
     i₋ = Int(floor(x₀/Δx)) + 1
@@ -58,7 +58,7 @@ function nearby_gridpoints(::Face, Δx::Float64, Nx::Int64, x₀::Float64) :: Tu
     
 end
 
-function nearby_gridpoints(::Center, Δx::Float64, Nx::Int64, x₀::Float64) :: Tuple{Int64, Int64, Float64}
+function nearby_gridpoints(::Center, Δx::AbstractFloat, Nx::Int64, x₀::AbstractFloat) :: Tuple{Int64, Int64, Float64}
 
     # Finds gridpoint indices either side of x₀ on a periodic 1D Center grid
     i₋ = Int(floor(x₀/Δx - 0.5)) + 1
@@ -87,7 +87,7 @@ function interpolate(var::String, (ℓx, ℓy), (x₀, y₀)::Tuple{Float64, Flo
 
 end
 
-function extract_interpolated_drifter_data(eul_data::FileData, var::String, (ℓx, ℓy), x::Vector{Float64}, y::Vector{Float64}, drifter_t::Vector{Float64})
+function extract_interpolated_drifter_data(eul_data::FileData, var::String, (ℓx, ℓy), x::Vector{<:AbstractFloat}, y::Vector{<:AbstractFloat}, drifter_t::Vector{<:AbstractFloat})
     
     iterations = eul_data.iterations
     eul_t = [eul_data.file["timeseries/t/$iter"] for iter in iterations]

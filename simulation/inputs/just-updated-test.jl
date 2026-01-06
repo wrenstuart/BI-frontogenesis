@@ -1,13 +1,12 @@
-# Took 3 days to run to completion
-# This was before updating to Oceananigans v0.95
+# Some global numerical instability after running---likely need to decrease CFL number
 function sim_params() 
     Ri = 1
     s = 1e4
     ν_v = 1e-3
     ν_h = 4e+1
     GPU = true
-    res = (768, 768, 64)
-    advection_scheme = CenteredSecondOrder
+    res = (512, 512, 64)
+    advection_scheme = Centered
     horizontal_hyperviscosity = false
     short_duration = false
     diffusive_cfl = 0.3

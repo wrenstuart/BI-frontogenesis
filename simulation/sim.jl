@@ -100,7 +100,7 @@ function run_sim(params, label)
 
     # Set the time-stepping parameters
     max_Δt = 0.4 * pi / (phys_params.N²^0.5)
-    duration = 10 / real(least_stable_mode(params.Ri, 2π/domain.x, 0, rate_only = true))
+    duration = 8 / real(least_stable_mode(params.Ri, 2π/domain.x, 0, rate_only = true))
     if params.short_duration
         duration = duration / 20
     end
@@ -123,7 +123,6 @@ function run_sim(params, label)
     diff_v = VerticalScalarDiffusivity(ν = params.ν_v, κ = params.ν_v)
 
     # Introduce Lagrangian particles in an n × n grid
-    n_d = 20
     x₀ = Array{Float64, 1}(undef, n_d^2)
     y₀ = Array{Float64, 1}(undef, n_d^2)
     @unroll for i = 0 : n_d^2-1
@@ -171,7 +170,7 @@ function run_sim(params, label)
     other_args = (advection_scheme = params.advection_scheme(),
                 coriolis = FPlane(f = f),
                 closure = closure,
-                buoyancy = Buoyancy(model = BuoyancyTracer()),
+                buoyancy = BuoyancyTracer(),
                 background_fields = background_fields,
                 velocities = velocities,
                 tracers = tracers,
@@ -216,14 +215,7 @@ function run_sim(params, label)
     auxiliary_fields = (; ζ, δ, ζ_tendency, ζ_adv, ζ_err, F_ζ_hor, F_ζ_vrt, F_ζ_cor, ζ_h_visc, ζ_v_visc, δ_tendency, δ_adv, δ_err, F_δ_hor, F_δ_vrt, F_δ_cor, F_δ_prs, δ_h_visc, δ_v_visc)
     drifter_fields = auxiliary_fields
 
-    #=function fix_particle_below_surface(lagrangian_particles, model, Δt)
-        lagrangian_particles.properties.z .= -domain.z / 2resolution[3]
-    end
-    if params.fix_drifters_below_surface
-        lagrangian_drifters = LagrangianParticles(particles; tracked_fields = drifter_fields, dynamics = fix_particle_below_surface)
-    else=#
-        lagrangian_drifters = LagrangianParticles(particles; tracked_fields = drifter_fields)
-    #end
+    lagrangian_drifters = LagrangianParticles(particles; tracked_fields = drifter_fields)
 
     # Remember to use CuArray instead of regular Array when storing particle locations and properties on the GPU?????
 
@@ -234,8 +226,9 @@ function run_sim(params, label)
               tracers = tracers,  # Set the name(s) of any tracers; here, b is buoyancy
               velocities = velocities,
               auxiliary_fields = auxiliary_fields,
-              pressures = (; pHY′, pNHS),
-              buoyancy = Buoyancy(model = BuoyancyTracer()), # this tells the model that b will act as the buoyancy (and influence momentum)
+              nonhydrostatic_pressure = pNHS,
+              hydrostatic_pressure_anomaly = pHY′,
+              buoyancy = BuoyancyTracer(), # this tells the model that b will act as the buoyancy (and influence momentum)
               background_fields = (b = B_field, u = U_field),
               coriolis = coriolis = FPlane(f = f),
               closure = (diff_h, diff_v),
@@ -320,7 +313,8 @@ function run_sim(params, label)
                                 filename = filename * ".jld2",
                                 indices = (:, :, resolution[3]),
                                 schedule = TimeInterval(phys_params.T/30),
-                                overwrite_existing = true)
+                                overwrite_existing = true,
+                                with_halos = true)
 
     # simulation.output_writers[:checkpointer] = Checkpointer(model, schedule=IterationInterval(2000), prefix="model_checkpoint")
     # get scalarindex gpu error when add above line (so don't)
