@@ -1,4 +1,5 @@
 # This sim takes 2 days to run when the domain is halved from what it was before
+# This was before updating to Oceananigans v0.95
 function sim_params() 
     Ri = 1
     s = 1e4

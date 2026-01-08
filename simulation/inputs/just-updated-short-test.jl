@@ -9,6 +9,6 @@ function sim_params()
     advection_scheme = Centered
     horizontal_hyperviscosity = false
     short_duration = true
-    diffusive_cfl = 0.3
+    diffusive_cfl = 0.1
     return (; GPU, res, Ri, s, ν_h, ν_v, advection_scheme, horizontal_hyperviscosity, short_duration, diffusive_cfl)
 end

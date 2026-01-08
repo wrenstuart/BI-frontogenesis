@@ -2,7 +2,16 @@
 # Note: 512×512×64 sims take up 6247MiB of memory
 
 const n_d = 20      # for n_d×n_d array of drifters
+label::String = ARGS[1]
 include("sim.jl")
-include("inputs/" * ARGS[1] * ".jl")
+include("inputs/" * label * ".jl")
 
-run_sim(sim_params(), ARGS[1])
+@info label
+dir = "raw_data/" * label * "/"
+if isdir(dir)
+    throw("Output directory for label " * label * " already exists")
+else
+    mkdir(dir)
+    @info "Created directory for simulation with label " * label
+    run_sim(sim_params(), label)
+end

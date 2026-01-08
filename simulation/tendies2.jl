@@ -342,10 +342,20 @@ end
 
 end
 
+@inline function u_func(i, j, k)
+    u = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.u)
+    return u[i, j, k]
+end
+@inline function v_func(i, j, k)
+    v = SumOfArrays{2}(a.velocities.u, a.background_fields.velocities.v)
+    return v[i, j, k]
+end
+@inline δ_func = hor_div_func(u_func, v_func)
+
 @inline δ_tendency_func = hor_div_func(u_tendency_func, v_tendency_func)
 @inline δ_err_func      = hor_div_func(     u_err_func, v_err_func     )
 @inline F_δ_cor_func    = hor_div_func(     u_cor_func, v_cor_func     )
-@inline F_δ_prs_func   = hor_div_func(     u_prs_func, v_prs_func     )
+@inline F_δ_prs_func    = hor_div_func(     u_prs_func, v_prs_func     )
 
 @inline function δ_h_visc_func(i, j, k, grid, other_args)
 

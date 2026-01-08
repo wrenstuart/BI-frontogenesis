@@ -80,18 +80,11 @@ struct MyParticle
     δ_h_visc::Float64       # νₕ∇ₕ²𝛿
     δ_v_visc::Float64       # νᵥ∂²𝛿/∂𝑧²
 
+    δ_from_kern::Float64
+
 end
 
 function run_sim(params, label)
-
-    @info label
-    dir = "raw_data/" * label * "/"
-    if isdir(dir)
-        throw("Output directory for label " * label * " already exists")
-    else
-        mkdir(dir)
-        @info "Created director for simulation with label " * label
-    end
 
     resolution = params.res
 
@@ -133,7 +126,7 @@ function run_sim(params, label)
         x₀, y₀ = CuArray.([x₀, y₀])
     end
     O = params.GPU ? () -> CuArray(zeros(n_d^2)) : () -> zeros(n_d^2)
-    particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
+    particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
 
     @inline function ∂²zᵃᵃᶠ_top(i, j, k, grid, u)
         δz² = Δzᶠᶠᶜ(i, j, k, grid)^2
@@ -194,25 +187,27 @@ function run_sim(params, label)
     @inline F_δ_prs_op    = KernelFunctionOperation{Face, Face, Center}(F_δ_prs_func,    grid, other_args)
     @inline δ_h_visc_op   = KernelFunctionOperation{Face, Face, Center}(δ_h_visc_func,   grid, other_args)
     @inline δ_v_visc_op   = KernelFunctionOperation{Face, Face, Center}(δ_v_visc_func,   grid, other_args)
-    ζ_tendency = Field(ζ_tendency_op)
-    ζ_adv      = Field(ζ_adv_op)
-    ζ_err      = Field(ζ_err_op)
-    F_ζ_hor    = Field(F_ζ_hor_op)
-    F_ζ_vrt    = Field(F_ζ_vrt_op)
-    F_ζ_cor    = Field(F_ζ_cor_op)
-    ζ_h_visc   = Field(ζ_h_visc_op)
-    ζ_v_visc   = Field(ζ_v_visc_op)
-    δ_tendency = Field(δ_tendency_op)
-    δ_adv      = Field(δ_adv_op)
-    δ_err      = Field(δ_err_op)
-    F_δ_hor    = Field(F_δ_hor_op)
-    F_δ_vrt    = Field(F_δ_vrt_op)
-    F_δ_cor    = Field(F_δ_cor_op)
-    F_δ_prs    = Field(F_δ_prs_op)
-    δ_h_visc   = Field(δ_h_visc_op)
-    δ_v_visc   = Field(δ_v_visc_op)
+    @inline δ_op          = KernelFunctionOperation{Face, Face, Center}(δ_func,          grid, other_args)
+    ζ_tendency  = Field(ζ_tendency_op)
+    ζ_adv       = Field(ζ_adv_op)
+    ζ_err       = Field(ζ_err_op)
+    F_ζ_hor     = Field(F_ζ_hor_op)
+    F_ζ_vrt     = Field(F_ζ_vrt_op)
+    F_ζ_cor     = Field(F_ζ_cor_op)
+    ζ_h_visc    = Field(ζ_h_visc_op)
+    ζ_v_visc    = Field(ζ_v_visc_op)
+    δ_tendency  = Field(δ_tendency_op)
+    δ_adv       = Field(δ_adv_op)
+    δ_err       = Field(δ_err_op)
+    F_δ_hor     = Field(F_δ_hor_op)
+    F_δ_vrt     = Field(F_δ_vrt_op)
+    F_δ_cor     = Field(F_δ_cor_op)
+    F_δ_prs     = Field(F_δ_prs_op)
+    δ_h_visc    = Field(δ_h_visc_op)
+    δ_v_visc    = Field(δ_v_visc_op)
+    δ_from_kern = Field(δ)
 
-    auxiliary_fields = (; ζ, δ, ζ_tendency, ζ_adv, ζ_err, F_ζ_hor, F_ζ_vrt, F_ζ_cor, ζ_h_visc, ζ_v_visc, δ_tendency, δ_adv, δ_err, F_δ_hor, F_δ_vrt, F_δ_cor, F_δ_prs, δ_h_visc, δ_v_visc)
+    auxiliary_fields = (; ζ, δ, ζ_tendency, ζ_adv, ζ_err, F_ζ_hor, F_ζ_vrt, F_ζ_cor, ζ_h_visc, ζ_v_visc, δ_tendency, δ_adv, δ_err, F_δ_hor, F_δ_vrt, F_δ_cor, F_δ_prs, δ_h_visc, δ_v_visc, δ_from_kern)
     drifter_fields = auxiliary_fields
 
     lagrangian_drifters = LagrangianParticles(particles; tracked_fields = drifter_fields)
@@ -309,7 +304,7 @@ function run_sim(params, label)
     # Output the slice z = 0
     filename = dir * "BI_xy"
     simulation.output_writers[:xy_slices] =
-        JLD2OutputWriter(model, (; u, v, w, b, p, ζ, δ),
+        JLD2OutputWriter(model, (; u, v, w, b, p, ζ, δ, δ_tendency),
                                 filename = filename * ".jld2",
                                 indices = (:, :, resolution[3]),
                                 schedule = TimeInterval(phys_params.T/30),
