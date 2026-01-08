@@ -23,10 +23,12 @@ function plot_lagr_ζ_balance(label::String, drifter_num::Int64)
 
     check_pp_dir(label)
     t, tracked_drifter_data = extract_tracked_drifter_data(label)
+
     #i₀ = argmin(abs.(t .- 15/f))
     #i₁ = argmin(abs.(t .- 20/f))
     i₀ = Int(round(length(tracked_drifter_data[1])/2))
     i₁ = length(tracked_drifter_data[1])
+
     t = t[i₀:i₁]
     tracked_drifter_data = [tracked_drifter_data[n][i₀:i₁] for n in eachindex(tracked_drifter_data)]
     num_iters = length(tracked_drifter_data[drifter_num])
@@ -35,11 +37,12 @@ function plot_lagr_ζ_balance(label::String, drifter_num::Int64)
     ζ_tendency = [tracked_drifter_data[drifter_num][i].ζ_tendency for i = 1 : num_iters]
     ζ_adv      = [tracked_drifter_data[drifter_num][i].ζ_adv      for i = 1 : num_iters]
     ζ_err      = [tracked_drifter_data[drifter_num][i].ζ_err      for i = 1 : num_iters]
-    F_ζ_hor    = [tracked_drifter_data[drifter_num][i].F_ζ_hor    for i = 1 : num_iters]
-    F_ζ_vrt    = [tracked_drifter_data[drifter_num][i].F_ζ_vrt    for i = 1 : num_iters]
-    F_ζ_cor    = [tracked_drifter_data[drifter_num][i].F_ζ_cor    for i = 1 : num_iters]
     ζ_h_visc   = [tracked_drifter_data[drifter_num][i].ζ_h_visc   for i = 1 : num_iters]
     ζ_v_visc   = [tracked_drifter_data[drifter_num][i].ζ_v_visc   for i = 1 : num_iters]
+    F_ζ_cor    = [tracked_drifter_data[drifter_num][i].F_ζ_cor    for i = 1 : num_iters]
+    F_ζ_hor    = [tracked_drifter_data[drifter_num][i].F_ζ_hor    for i = 1 : num_iters]
+    # F_ζ_vrt    = [tracked_drifter_data[drifter_num][i].F_ζ_vrt    for i = 1 : num_iters]
+    # Automtically zero ^
 
     t̅ = f̅(t)
     dζdt = ddt(ζ, t)
@@ -50,19 +53,14 @@ function plot_lagr_ζ_balance(label::String, drifter_num::Int64)
     lines!(f*t, ζ_tendency + ζ_adv, label = L"\mathrm{D}\zeta/\mathrm{D}t", color = :black)
     lines!(f*t̅, dζdt, label = L"\mathrm{D}\zeta/\mathrm{D}t\text{ (Lagr)}")#, color = :black, linestyle = :dash)
     lines!(f*t, F_ζ_hor,  label = L"F_{\zeta,\text{hor}}")
-    lines!(f*t, F_ζ_vrt,  label = L"F_{\zeta,\text{vrt}}")
+    # lines!(f*t, F_ζ_vrt,  label = L"F_{\zeta,\text{vrt}}")
+    # Automtically zero ^
     lines!(f*t, F_ζ_cor,  label = L"\zeta_\text{Cor}")
     lines!(f*t, ζ_h_visc, label = L"\zeta_\text{visc,h}")
     lines!(f*t, ζ_v_visc, label = L"\zeta_\text{visc,v}")
-    #=lines!(f*t, ζ_tendency + ζ_adv + ζ_err - (
-        F_ζ_cor + ζ_v_visc + ζ_h_visc + F_ζ_hor + F_ζ_vrt),
-        label = "residual", color = :black)=#
     lines!(f*t, ζ_err, label = L"\zeta_{\text{err}}", color = :black, linestyle = :dot)
-    #lines!(f*t, f*ζ, label = L"f\zeta", color = :black, linestyle = :dash)
     lim = maximum([maximum(abs.(ζ_tendency + ζ_adv + ζ_err)), maximum(abs.(F_ζ_hor)),
-                    maximum(abs.(F_ζ_vrt)), maximum(abs.(F_ζ_cor)),
-                    maximum(abs.(ζ_h_visc)), maximum(abs.(ζ_v_visc))])
-    @info lim
+                   maximum(abs.(F_ζ_cor)), maximum(abs.(ζ_h_visc)), maximum(abs.(ζ_v_visc))])
     #ylims!(ax, -lim, lim)
     axislegend(position=:lb)
     display(fig)
@@ -73,8 +71,12 @@ function plot_lagr_δ_balance(label::String, drifter_num::Int64)
 
     check_pp_dir(label)
     t, tracked_drifter_data = extract_tracked_drifter_data(label)
-    i₀ = 300
-    i₁ = 500
+
+    #i₀ = argmin(abs.(t .- 15/f))
+    #i₁ = argmin(abs.(t .- 20/f))
+    i₀ = Int(round(length(tracked_drifter_data[1])/2))
+    i₁ = Int(round(length(tracked_drifter_data[1])*0.8))
+
     t = t[i₀:i₁]
     tracked_drifter_data = [tracked_drifter_data[n][i₀:i₁] for n in eachindex(tracked_drifter_data)]
     num_iters = length(tracked_drifter_data[drifter_num])
@@ -83,20 +85,20 @@ function plot_lagr_δ_balance(label::String, drifter_num::Int64)
     δ_tendency = [tracked_drifter_data[drifter_num][i].δ_tendency for i = 1 : num_iters]
     δ_adv      = [tracked_drifter_data[drifter_num][i].δ_adv      for i = 1 : num_iters]
     δ_err      = [tracked_drifter_data[drifter_num][i].δ_err      for i = 1 : num_iters]
+    δ_h_visc   = [tracked_drifter_data[drifter_num][i].δ_h_visc   for i = 1 : num_iters]
+    δ_v_visc   = [tracked_drifter_data[drifter_num][i].δ_v_visc   for i = 1 : num_iters]
     F_δ_hor    = [tracked_drifter_data[drifter_num][i].F_δ_hor    for i = 1 : num_iters]
     F_δ_vrt    = [tracked_drifter_data[drifter_num][i].F_δ_vrt    for i = 1 : num_iters]
     F_δ_cor    = [tracked_drifter_data[drifter_num][i].F_δ_cor    for i = 1 : num_iters]
     F_δ_prs    = [tracked_drifter_data[drifter_num][i].F_δ_prs    for i = 1 : num_iters]
-    δ_h_visc   = [tracked_drifter_data[drifter_num][i].δ_h_visc   for i = 1 : num_iters]
-    δ_v_visc   = [tracked_drifter_data[drifter_num][i].δ_v_visc   for i = 1 : num_iters]
 
     t̅ = f̅(t)
     dδdt = ddt(δ, t)
 
     fig = Figure(size=(999,999))
     ax = Axis(fig[1, 1])
-    lim = 5e-7
-    lines!(f*t, δ_tendency + δ_adv, label = L"\mathrm{D}\delta/\mathrm{D}t")
+    lim = 1e-7
+    lines!(f*t, δ_tendency + δ_adv, label = L"\mathrm{D}\delta/\mathrm{D}t", color = :black)
     lines!(f*t̅, dδdt, label = L"\mathrm{D}\delta/\mathrm{D}t\text{ (Lagr)}")#, color = :black, linestyle = :dash)
     lines!(f*t̅, f̅(δ_tendency + δ_adv) - dδdt)
     lines!(f*t, F_δ_hor,  label = L"F_{\delta,\text{hor}}")
@@ -105,9 +107,9 @@ function plot_lagr_δ_balance(label::String, drifter_num::Int64)
     lines!(f*t, δ_h_visc, label = L"\delta_\text{visc,h}")
     lines!(f*t, δ_v_visc, label = L"\delta_\text{visc,v}")
     lines!(f*t, F_δ_prs,  label = L"F_{\delta,\text{prs}}")
-    #=lines!(f*t, δ_tendency + δ_adv + δ_err - (
+    lines!(f*t, δ_tendency + δ_adv + δ_err - (
         F_δ_cor + δ_v_visc + δ_h_visc + F_δ_hor + F_δ_vrt + F_δ_prs),
-        label = "residual", color = :black)=#
+        label = "residual", color = :black)
     lines!(f*t, δ_err, label = L"\delta_{\text{err}}", color = :black, linestyle = :dot)
     lines!(f*t, f*δ, label = L"f\delta", color = :black, linestyle = :dash)
     lim = maximum([maximum(abs.(δ_tendency + δ_adv)),
@@ -337,6 +339,45 @@ function tame_spikes3()
     lines!(ax, f*t[end-100:end-50], (x[end-100:end-50] .+ 0.5Lx) .% Lx)
     xlims!(ax, 42, 44)
     ylims!(ax, 1e4, 2e4)
+    display(fig)
+
+end
+
+function δ_test_eul()
+
+    label = "just-updated-short-test"
+    data = topdata(label)
+    iterations = data.iterations
+    file = data.file
+    δ      = [file["timeseries/δ/$iter"][1, 1, 1]          for iter in iterations]
+    t      = [file["timeseries/t/$iter"]                   for iter in iterations]
+    δ_tend = [file["timeseries/δ_tendency/$iter"][1, 1, 1] for iter in iterations]
+    Δ(vec) = vec[1:end-1] - vec[2:end]
+    f̅(vec) = (vec[1:end-1] + vec[2:end]) / 2
+    ∂δ∂t = Δ(δ) ./ Δ(t)
+    t̅ = f̅(t)
+
+    fig = Figure()
+    ax = Axis(fig[1, 1])
+    lines!(ax, t, δ_tend)
+    lines!(ax, t̅, ∂δ∂t)
+    display(fig)
+
+end
+
+function δ_test_lagr()
+
+    label = "just-updated-short-test"
+    t, tracked_drifter_data = extract_tracked_drifter_data(label)
+    drifter = tracked_drifter_data[1]
+    num_iters = length(drifter)
+    δ           = [drifter[i].δ           for i = 1 : num_iters]
+    δ_from_kern = [drifter[i].δ_from_kern for i = 1 : num_iters]
+
+    fig = Figure()
+    ax = Axis(fig[1, 1])
+    lines!(ax, t, δ_from_kern)
+    lines!(ax, t, δ)
     display(fig)
 
 end
