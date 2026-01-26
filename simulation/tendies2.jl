@@ -6,13 +6,17 @@ using Oceananigans.Advection
 using Oceananigans.Coriolis
 using Oceananigans.Utils: SumOfArrays
 
-"return the ``x``-gradient of hydrostatic pressure"
+"return the ``x and y``-gradient of hydrostatic pressure"
 hydrostatic_pressure_gradient_x(i, j, k, grid, hydrostatic_pressure) = ∂xᶠᶜᶜ(i, j, k, grid, hydrostatic_pressure)
-hydrostatic_pressure_gradient_x(i, j, k, grid, ::Nothing) = zero(grid)
-
-"return the ``y``-gradient of hydrostatic pressure"
 hydrostatic_pressure_gradient_y(i, j, k, grid, hydrostatic_pressure) = ∂yᶜᶠᶜ(i, j, k, grid, hydrostatic_pressure)
+hydrostatic_pressure_gradient_x(i, j, k, grid, ::Nothing) = zero(grid)
 hydrostatic_pressure_gradient_y(i, j, k, grid, ::Nothing) = zero(grid)
+
+"return the ``x and y``-gradient of nonhydrostatic pressure"
+nonhydrostatic_pressure_gradient_x(i, j, k, grid, nonhydrostatic_pressure) = ∂xᶠᶜᶜ(i, j, k, grid, nonhydrostatic_pressure)
+nonhydrostatic_pressure_gradient_y(i, j, k, grid, nonhydrostatic_pressure) = ∂yᶜᶠᶜ(i, j, k, grid, nonhydrostatic_pressure)
+nonhydrostatic_pressure_gradient_x(i, j, k, grid, ::Nothing) = zero(grid)
+nonhydrostatic_pressure_gradient_y(i, j, k, grid, ::Nothing) = zero(grid)
 
 array_to_function(arr) = (i, j, k) -> arr[i, j, k]
 a2f(arr) = array_to_function(arr)
@@ -102,8 +106,98 @@ a2f(arr) = array_to_function(arr)
 @inline ∇ₕ²_f(grid, f::Function) = add(∂x²_f(grid, f::Function), ∂y²_f(grid, f::Function))
 
 
+@inline function u_t_func_full( # ∂u/∂t, different from the tendency G_u (which
+                                # does not include nonhydrostatic pressure)
+    i, j, k,
+    grid,
+    advection_scheme,
+    coriolis,
+    closure,
+    buoyancy,
+    background_fields,
+    velocities,
+    tracers,
+    diffusivities,
+    hydrostatic_pressure,
+    nonhydrostatic_pressure)
 
-@inline function u_tendency_func_full(
+    total_velocities = (u = SumOfArrays{2}(velocities.u, background_fields.velocities.u),
+                        v = SumOfArrays{2}(velocities.v, background_fields.velocities.v),
+                        w = SumOfArrays{2}(velocities.w, background_fields.velocities.w))
+    model_fields = merge(velocities, tracers)
+    return ( - div_𝐯u(i, j, k, grid, advection_scheme, total_velocities, velocities.u)
+             - div_𝐯u(i, j, k, grid, advection_scheme, velocities, background_fields.velocities.u)  # Pretty sure can ignore this term
+             - x_f_cross_U(i, j, k, grid, coriolis, velocities)
+             - hydrostatic_pressure_gradient_x(i, j, k, grid, hydrostatic_pressure)
+             - nonhydrostatic_pressure_gradient_x(i, j, k, grid, nonhydrostatic_pressure)
+             - ∂ⱼ_τ₁ⱼ(i, j, k, grid, closure, diffusivities, clock, model_fields, buoyancy))
+
+end
+
+@inline function v_t_func_full( # Similar to u_t_func, different from tendency
+    i, j, k,
+    grid,
+    advection_scheme,
+    coriolis,
+    closure,
+    buoyancy,
+    background_fields,
+    velocities,
+    tracers,
+    diffusivities,
+    hydrostatic_pressure,
+    nonhydrostatic_pressure)
+
+    total_velocities = (u = SumOfArrays{2}(velocities.u, background_fields.velocities.u),
+                        v = SumOfArrays{2}(velocities.v, background_fields.velocities.v),
+                        w = SumOfArrays{2}(velocities.w, background_fields.velocities.w))
+    model_fields = merge(velocities, tracers)
+    return ( - div_𝐯v(i, j, k, grid, advection_scheme, total_velocities, velocities.v)
+             - div_𝐯v(i, j, k, grid, advection_scheme, velocities, background_fields.velocities.v)  # Pretty sure can ignore this term
+             - y_f_cross_U(i, j, k, grid, coriolis, velocities)
+             - hydrostatic_pressure_gradient_y(i, j, k, grid, hydrostatic_pressure)
+             - nonhydrostatic_pressure_gradient_y(i, j, k, grid, nonhydrostatic_pressure)
+             - ∂ⱼ_τ₂ⱼ(i, j, k, grid, closure, diffusivities, clock, model_fields, buoyancy))
+
+end
+
+@inline function u_t_func(i, j, k, grid, other_args)
+    # For some reason the GPU can't handle taking the other args from the named
+    # tuple into u_t_full_func in one step---writing it out in long form like
+    # this avoids compiling problems
+    a = other_args
+    advection_scheme = a.advection_scheme
+    coriolis = a.coriolis
+    closure = a.closure
+    buoyancy = a.buoyancy
+    background_fields = a.background_fields
+    velocities = a.velocities
+    tracers = a.tracers
+    diffusivities = a.diffusivities
+    hydrostatic_pressure = a.hydrostatic_pressure
+    nonhydrostatic_pressure = a.nonhydrostatic_pressure
+    return u_t_func_full(i, j, k, grid, advection_scheme, coriolis,
+              closure, buoyancy, background_fields, velocities, tracers,
+              diffusivities, hydrostatic_pressure, nonhydrostatic_pressure)
+end
+@inline function v_t_func(i, j, k, grid, other_args)
+    a = other_args
+    advection_scheme = a.advection_scheme
+    coriolis = a.coriolis
+    closure = a.closure
+    buoyancy = a.buoyancy
+    background_fields = a.background_fields
+    velocities = a.velocities
+    tracers = a.tracers
+    diffusivities = a.diffusivities
+    hydrostatic_pressure = a.hydrostatic_pressure
+    nonhydrostatic_pressure = a.nonhydrostatic_pressure
+    return v_t_func_full(i, j, k, grid, advection_scheme, coriolis,
+              closure, buoyancy, background_fields, velocities, tracers,
+              diffusivities, hydrostatic_pressure, nonhydrostatic_pressure)
+end
+
+#=@inline function u_tendency_func_full(
     i, j, k,
     grid,
     advection_scheme,
@@ -180,6 +274,18 @@ end
     hydrostatic_pressure = a.hydrostatic_pressure
     return v_tendency_func_full(i, j, k, grid, advection_scheme, coriolis, closure, buoyancy,
                             background_fields, velocities, tracers, diffusivities, hydrostatic_pressure)
+end=#
+
+@inline function u_adv_func(i, j, k, grid, other_args)
+    a = other_args
+    advection_scheme = a.advection_scheme
+    background_fields = a.background_fields
+    velocities = a.velocities
+    total_velocities = (u = SumOfArrays{2}(velocities.u, background_fields.velocities.u),
+                        v = SumOfArrays{2}(velocities.v, background_fields.velocities.v),
+                        w = SumOfArrays{2}(velocities.w, background_fields.velocities.w))
+    return (  div_𝐯u(i, j, k, grid, advection_scheme, total_velocities, velocities.u)
+            + div_𝐯u(i, j, k, grid, advection_scheme, velocities, background_fields.velocities.u))
 end
 @inline function u_cor_func(i, j, k, grid, other_args)
     a = other_args
@@ -201,11 +307,13 @@ end
 end
 @inline function u_prs_func(i, j, k, grid, other_args)
     a = other_args
-    return - hydrostatic_pressure_gradient_x(i, j, k, grid, a.hydrostatic_pressure)
+    return ( - hydrostatic_pressure_gradient_x(i, j, k, grid, a.hydrostatic_pressure)
+             - nonhydrostatic_pressure_gradient_x(i, j, k, grid, a.nonhydrostatic_pressure))
 end
 @inline function v_prs_func(i, j, k, grid, other_args)
     a = other_args
-    return - hydrostatic_pressure_gradient_y(i, j, k, grid, a.hydrostatic_pressure)
+    return ( - hydrostatic_pressure_gradient_y(i, j, k, grid, a.hydrostatic_pressure)
+             - nonhydrostatic_pressure_gradient_y(i, j, k, grid, a.nonhydrostatic_pressure))
 end
 
 @inline function u_err_func(i, j, k, grid, other_args)   # Error from ∇⋅(𝐮u) ≠ 𝐮⋅∇u
@@ -236,9 +344,9 @@ end
 
 end
 
-#########################
-# Lagrangian ζ tendency #
-#########################
+########################
+# Lagrangian ζ t-deriv #
+########################
 
 @inline function vtcl_curl_func(u_func, v_func)
 
@@ -326,11 +434,11 @@ end
 
 @inline ζ_err_func = vtcl_curl_func(u_err_func, v_err_func)
 
-@inline ζ_tendency_func = vtcl_curl_func(u_tendency_func, v_tendency_func)
+@inline ζ_t_func = vtcl_curl_func(u_t_func, v_t_func)
 
-#########################
-# Lagrangian δ tendency #
-#########################
+########################
+# Lagrangian δ t-deriv #
+########################
 
 @inline function hor_div_func(u_func, v_func)
 
@@ -352,10 +460,10 @@ end
 end
 @inline δ_func = hor_div_func(u_func, v_func)
 
-@inline δ_tendency_func = hor_div_func(u_tendency_func, v_tendency_func)
-@inline δ_err_func      = hor_div_func(     u_err_func, v_err_func     )
-@inline F_δ_cor_func    = hor_div_func(     u_cor_func, v_cor_func     )
-@inline F_δ_prs_func    = hor_div_func(     u_prs_func, v_prs_func     )
+@inline δ_t_func     = hor_div_func(u_t_func, v_t_func)
+@inline δ_err_func   = hor_div_func(u_err_func, v_err_func)
+@inline F_δ_cor_func = hor_div_func(u_cor_func, v_cor_func)
+@inline F_δ_prs_func = hor_div_func(u_prs_func, v_prs_func)
 
 @inline function δ_h_visc_func(i, j, k, grid, other_args)
 

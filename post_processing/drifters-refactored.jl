@@ -69,7 +69,7 @@ function nearby_gridpoints(::Center, Δx::AbstractFloat, Nx::Int64, x₀::Abstra
     
 end
 
-function interpolate(var::String, (ℓx, ℓy), (x₀, y₀)::Tuple{Float64, Float64}, data::FileData, iter::Int64)
+function interpolate(var::String, (ℓx, ℓy), (x₀, y₀)::Tuple{Float32, Float32}, data::FileData, iter::Int64)
 
     # Interpolates a variable located on an (ℓx, ℓy) grid to a point (x₀, y₀)
     if ℓx == Center() x = data.xᶜ elseif ℓx == Face() x = data.xᶠ else throw("ℓx must be Center() or Face()") end

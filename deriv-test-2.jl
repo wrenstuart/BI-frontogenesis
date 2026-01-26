@@ -1,213 +1,334 @@
-# For diagnosing velocity gradient budgets
-# (in particular, the vorticity equation)
-
-# It turns out that the budget holds perfectly
-# at Eulerian gridpoints!!!
-
+using Printf
+using Unroll
+using CUDA
+using StructArrays
 using Oceananigans
-using Oceananigans.BoundaryConditions: fill_halo_regions!
-using Oceananigans.BoundaryConditions
+using Oceananigans.TurbulenceClosures
 using Oceananigans.Operators
 using Oceananigans.Fields
-using CairoMakie
-using CUDA
+using Oceananigans.Models.NonhydrostaticModels
+using Oceananigans.BoundaryConditions: fill_halo_regions!
+using Oceananigans.Architectures: arch_array
+
+const n_d = 20      # for n_d×n_d array of drifters
+label = "addednhspressure_short"
+include("simulation/inputs/" * label * ".jl")
+include("QOL.jl")
+include("instabilities/modes.jl")
 include("simulation/tendies2.jl")
 
-Nz = 10
-grid = RectilinearGrid(CPU(), topology = (Periodic, Periodic, Bounded), size = (Nz, Nz, Nz), x = (0, 2π), y = (0, 2π), z = (0, 2π))
+function physical_quantities_from_inputs(Ri, s)
 
-i = 2
-j = 3
-k = 5
-x = grid.xᶜᵃᵃ[i]
-y = grid.yᵃᶜᵃ[j]
-z = grid.zᵃᵃᶜ[k]
-# Pick a point
+    # Get the dimensional parameters of the problem
+    p = get_scales(Ri, s)
 
-# Next try it with full fields? KernelFunctionOperation or whatever
+    # Set the viscosities
 
+    # Set the domain size
+    Lx = 2π * p.L * 0.4^0.5 # Zonal extent, set to 2 wavelengths of the most unstable mode
+    Ly = Lx                     # Meridional extent
+    Lz = p.H                    # Vertical extent
+
+    # Set relative amplitude for random velocity perturbation
+
+    B₀(x, y, z, t) = p.M² * y + p.N² * z    # Buoyancy
+    U₀(x, y, z, t) = -p.M²/p.f * (z + Lz)   # Zonal velocity
+
+    # Set the initial perturbation conditions, a random velocity perturbation
+    uᵢ, vᵢ, wᵢ, bᵢ = generate_ic(Ri, Lx, p.U)
+
+    u_bcs = FieldBoundaryConditions(top = GradientBoundaryCondition(0.0),
+                                    bottom = GradientBoundaryCondition(0.0))
+    # This is applied to the perturbation u, not including the background U₀
+    # I think this is not strictly necessary, as that is the default boundary
+    # condition for the velocity field, but it is good to be explicit
+    BCs = (u = u_bcs,)
+
+    return p, (x = Lx, y = Ly, z = Lz), (u = uᵢ, v = vᵢ, w = wᵢ, b = bᵢ), (U = U₀, B = B₀), BCs
+
+end
+
+struct MyParticle
+
+    x::Float64
+    y::Float64
+    z::Float64
+
+    ζ::Float64
+    δ::Float64
+    u::Float64
+
+    # Lagrangian ζ LHS:
+    ζ_t::Float64            # 𝜁ₜ
+    ζ_adv::Float64          # 𝐮⋅∇𝜁
+    ζ_err::Float64          # 𝐳̂⋅∇×(∇⋅(𝐮𝐮)-𝐮⋅∇𝐮)
+    # ^ vanishes in the continuum limit but non-0 when discretised
+    # Lagrangian ζ RHS:
+    F_ζ_hor::Float64        # -𝛿𝜁
+    F_ζ_vrt::Float64        # -𝐳̂⋅(∇𝑤×𝚲)
+    F_ζ_cor::Float64        # -𝛿𝑓
+    ζ_h_visc::Float64       # νₕ∇ₕ²𝜁
+    ζ_v_visc::Float64       # νᵥ∂²𝜁/∂𝑧²
+
+    # Lagrangian δ LHS:
+    δ_t::Float64            # 𝛿ₜ
+    δ_adv::Float64          # 𝐮⋅∇𝛿
+    δ_err::Float64          # ∇ₕ⋅∇(∇⋅(𝐮𝐮)-𝐮⋅∇𝐮) (c.f. ζ_err)
+    # Lagrangian δ RHS:
+    F_δ_hor::Float64        # -(∇ₕ𝐮ₕ):(∇ₕ𝐮ₕ)ᵀ
+    F_δ_vrt::Float64        # -∇ₕ𝑤⋅𝚲
+    F_δ_cor::Float64        # 𝑓𝜁
+    F_δ_prs::Float64        # -∇ₕ²𝑝 ( = -𝑓𝜁_g)
+    δ_h_visc::Float64       # νₕ∇ₕ²𝛿
+    δ_v_visc::Float64       # νᵥ∂²𝛿/∂𝑧²
+
+    u_t::Float64
+    u_adv::Float64
+
+
+end
+
+params = sim_params()
+resolution = params.res
+phys_params, domain, ic, background, BCs = physical_quantities_from_inputs(params.Ri, params.s)
+f = phys_params.f
+
+# Set the time-stepping parameters
+max_Δt = 0.4 * pi / (phys_params.N²^0.5)
+duration = 8 / real(least_stable_mode(params.Ri, 2π/domain.x, 0, rate_only = true))
+if params.short_duration
+    duration = duration / 20
+end
+
+# Build the grid
+if params.GPU
+    grid = RectilinearGrid(GPU(), size = resolution, x = (0, domain.x), y = (0, domain.y), z = (-domain.z, 0), topology = (Periodic, Periodic, Bounded))
+else
+    grid = RectilinearGrid(size = resolution, x = (0, domain.x), y = (0, domain.y), z = (-domain.z, 0), topology = (Periodic, Periodic, Bounded))
+end
+
+# Set the diffusivities and background fields
+B_field = BackgroundField(background.B)
+U_field = BackgroundField(background.U)
+if sim_params().horizontal_hyperviscosity
+    diff_h = ScalarBiharmonicDiffusivity(Oceananigans.TurbulenceClosures.HorizontalFormulation(), Float64, ν = params.ν_h, κ = params.ν_h)
+else
+    diff_h = HorizontalScalarDiffusivity(ν = params.ν_h, κ = params.ν_h)
+end
+diff_v = VerticalScalarDiffusivity(ν = params.ν_v, κ = params.ν_v)
+
+# Introduce Lagrangian particles in an n × n grid
+x₀ = Array{Float64, 1}(undef, n_d^2)
+y₀ = Array{Float64, 1}(undef, n_d^2)
+@unroll for i = 0 : n_d^2-1
+    x₀[i+1] = domain.x * (i % n_d) / n_d
+    y₀[i+1] = domain.y * (i ÷ n_d) / n_d
+end
+if params.GPU
+    x₀, y₀ = CuArray.([x₀, y₀])
+end
+O = params.GPU ? () -> CuArray(zeros(n_d^2)) : () -> zeros(n_d^2)
+particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
+
+@inline function ∂²zᵃᵃᶠ_top(i, j, k, grid, u)
+    δz² = Δzᶠᶠᶜ(i, j, k, grid)^2
+    δ²u = (3u[i, j, k] - 7u[i, j, k-1] + 5u[i, j, k-2] - u[i, j, k-3]) / 2
+    return δ²u/δz²
+end
+∇ₕ²(𝑓) = ∂x(∂x(𝑓)) + ∂y(∂y(𝑓))
+
+# Extract fundamental variable fields:
 velocities = VelocityFields(grid)
 u, v, w = velocities
-
-#=
-
-# Version where I calculated ∇⋅(𝐮u) both analytically and using Oceananigans discretisation
-
-k = 1
-α = 0.1
-u_back_func(x, y, z, t) = α*z
-set!(u, (x, y, z) -> cos(k*x)cos(k*z))
-set!(v, (x, y, z) -> 0)
-set!(w, (x, y, z) -> -sin(k*x)sin(k*z))
-fill_halo_regions!(u, v, w)
-u_div𝐯_func(x, y, z) = -k * (sin(2k*x)cos(k*z)^2 + 2sin(k*x)cos(k*z)*α*z + sin(k*x)cos(k*x)cos(2k*z) + α*z*sin(k*x)cos(k*z)) - α*sin(k*x)sin(k*z)=#
-
-α = 0.1
-u_back_func(x, y, z, t) = α*z
-set!(u, (x, y, z) -> sin(x)cos(y)cos(z) + cos(x)sin(y)cos(z))
-set!(v, (x, y, z) -> -cos(x)sin(y)cos(z))
-set!(w, (x, y, z) -> sin(x)sin(y)sin(z))
-fill_halo_regions!(u, v, w)
-u_div𝐯_func(x, y, z) = 0
-
 tracers = TracerFields((:b,), grid)
+b, = tracers
 pHY′ = CenterField(grid)
-# pNHS = CenterField(grid)
-advection_scheme = CenteredSecondOrder()
-#diff_h = ScalarBiharmonicDiffusivity(Oceananigans.TurbulenceClosures.HorizontalFormulation(), Float64, ν = 1e1, κ = 1e1)
-#diff_v = ScalarBiharmonicDiffusivity(Oceananigans.TurbulenceClosures.VerticalFormulation(), Float64, ν = 1e-3, κ = 1e-3)
-diff_h = ScalarBiharmonicDiffusivity(Oceananigans.TurbulenceClosures.HorizontalFormulation(), Float64, ν = 0.1, κ = 0.1)
-diff_v = ScalarBiharmonicDiffusivity(Oceananigans.TurbulenceClosures.VerticalFormulation(), Float64, ν = 0.1, κ = 0.1)
-closure = (diff_h, diff_v)
-#diffusivities = ((ν = 1e1, κ = 1e1), (ν = 1e-3, κ = 1e-3))
-diffusivities = ((ν = 0.1, κ = 0.1), (ν = 0.1, κ = 0.1))
+pNHS = CenterField(grid)
+
+p = pHY′ + pNHS
+ζ = ∂x(v) - ∂y(u)
+δ = ∂x(u) + ∂y(v)
+
 u_back = Field{Face, Center, Center}(grid)
 v_back = Field{Center, Face, Center}(grid)
 w_back = Field{Center, Center, Face}(grid)
 b_back = Field{Center, Center, Center}(grid)
-set!(u_back, (x, y, z) -> u_back_func(x, y, z, 0))
+set!(u_back, (x, y, z) -> background.U(x, y, z, 0))
+set!(b_back, (x, y, z) -> background.B(x, y, z, 0))
 fill_halo_regions!(u_back)
+fill_halo_regions!(b_back)
 background_fields = (velocities = (u = u_back, v = v_back, w = w_back),
-                     tracers = (b_back))
-other_args = (advection_scheme = advection_scheme,
-              coriolis = FPlane(f = 1e+0),
-              closure = closure,
-              buoyancy = Buoyancy(model = BuoyancyTracer()),
-              background_fields = background_fields,
-              velocities = velocities,
-              tracers = tracers,
-              diffusivities = diffusivities,
-              hydrostatic_pressure = pHY′)
+                    tracers = (b_back))
+closure = (diff_h, diff_v)
+diffusivities = ((ν = params.ν_h, κ = params.ν_h), (ν = params.ν_v, κ = params.ν_v))
 
-@inline u_tendency_op = KernelFunctionOperation{Face, Center, Center}(u_tendency_func, grid, other_args)
-@inline v_tendency_op = KernelFunctionOperation{Center, Face, Center}(v_tendency_func, grid, other_args)
-@inline u_visc_op     = KernelFunctionOperation{Face, Center, Center}(u_visc_func,     grid, other_args)
-@inline v_visc_op     = KernelFunctionOperation{Center, Face, Center}(v_visc_func,     grid, other_args)
-@inline u_cor_op      = KernelFunctionOperation{Face, Center, Center}(u_cor_func,      grid, other_args)
-@inline v_cor_op      = KernelFunctionOperation{Center, Face, Center}(v_cor_func,      grid, other_args)
-@inline u_div𝐯_op     = KernelFunctionOperation{Face, Center, Center}(   u_div𝐯_func, grid, other_args)
-@inline v_div𝐯_op     = KernelFunctionOperation{Center, Face, Center}(   v_div𝐯_func, grid, other_args)
-@inline my_u_div𝐯_op  = KernelFunctionOperation{Face, Center, Center}(my_u_div𝐯_func, grid, other_args)
-@inline my_v_div𝐯_op  = KernelFunctionOperation{Center, Face, Center}(my_v_div𝐯_func, grid, other_args)
-@inline ζ_adv_op      = KernelFunctionOperation{Face,   Face, Center}(    ζ_adv_func, grid, other_args)
-@inline F_ζ_hor_op    = KernelFunctionOperation{Face,   Face, Center}(  F_ζ_hor_func, grid, other_args)
-@inline F_ζ_vrt_op    = KernelFunctionOperation{Face,   Face, Center}(  F_ζ_vrt_func, grid, other_args)
-@inline u_err_op      = KernelFunctionOperation{Face, Center, Center}(    u_err_func, grid, other_args)
-@inline v_err_op      = KernelFunctionOperation{Center, Face, Center}(    v_err_func, grid, other_args)
-u_tendency = Field(u_tendency_op)
-v_tendency = Field(v_tendency_op)
-u_visc     = Field(u_visc_op)
-v_visc     = Field(v_visc_op)
-u_cor      = Field(u_cor_op)
-v_cor      = Field(v_cor_op)
-u_div𝐯     = Field(u_div𝐯_op)
-v_div𝐯     = Field(v_div𝐯_op)
-my_u_div𝐯  = Field(my_u_div𝐯_op)
-my_v_div𝐯  = Field(my_v_div𝐯_op)
-ζ_adv      = Field(ζ_adv_op)
-F_ζ_hor    = Field(F_ζ_hor_op)
-F_ζ_vrt    = Field(F_ζ_vrt_op)
-u_err      = Field(u_err_op)
-v_err      = Field(v_err_op)
-compute!(u_tendency)
-compute!(v_tendency)
-compute!(u_visc)
-compute!(v_visc)
-compute!(u_cor)
-compute!(v_cor)
-compute!(u_div𝐯)
-compute!(v_div𝐯)
-compute!(my_u_div𝐯)
-compute!(my_v_div𝐯)
-compute!(ζ_adv)
-compute!(F_ζ_hor)
-compute!(F_ζ_vrt)
-compute!(u_err)
-compute!(v_err)
-ζ = ∂x(v) - ∂y(u)
-ζ_div𝐯 = ∂x(v_div𝐯) - ∂y(u_div𝐯)
-ζ_err  = ∂x(v_err)  - ∂y(u_err)
-ζ_tendency = ∂x(v_tendency) - ∂y(u_tendency)
-ζ_visc = ∂x(v_visc) - ∂y(u_visc)
-ζ_cor = ∂x(v_cor) - ∂y(u_cor)
-nothing
+other_args = (advection_scheme = params.advection_scheme(),
+            coriolis = FPlane(f = f),
+            closure = closure,
+            buoyancy = BuoyancyTracer(),
+            background_fields = background_fields,
+            velocities = velocities,
+            tracers = tracers,
+            diffusivities = diffusivities,
+            hydrostatic_pressure = pHY′,
+            nonhydrostatic_pressure = pNHS)
 
-# Get plottable arrays from Oceananigans fields
+@inline ζ_t_op      = KernelFunctionOperation{Face, Face, Center}(ζ_t_func,      grid, other_args)
+@inline ζ_adv_op    = KernelFunctionOperation{Face, Face, Center}(ζ_adv_func,    grid, other_args)
+@inline ζ_err_op    = KernelFunctionOperation{Face, Face, Center}(ζ_err_func,    grid, other_args)
+@inline F_ζ_hor_op  = KernelFunctionOperation{Face, Face, Center}(F_ζ_hor_func,  grid, other_args)
+@inline F_ζ_vrt_op  = KernelFunctionOperation{Face, Face, Center}(F_ζ_vrt_func,  grid, other_args)
+@inline F_ζ_cor_op  = KernelFunctionOperation{Face, Face, Center}(F_ζ_cor_func,  grid, other_args)
+@inline ζ_h_visc_op = KernelFunctionOperation{Face, Face, Center}(ζ_h_visc_func, grid, other_args)
+@inline ζ_v_visc_op = KernelFunctionOperation{Face, Face, Center}(ζ_v_visc_func, grid, other_args)
+@inline δ_t_op      = KernelFunctionOperation{Face, Face, Center}(δ_t_func,      grid, other_args)
+@inline δ_adv_op    = KernelFunctionOperation{Face, Face, Center}(δ_adv_func,    grid, other_args)
+@inline δ_err_op    = KernelFunctionOperation{Face, Face, Center}(δ_err_func,    grid, other_args)
+@inline F_δ_hor_op  = KernelFunctionOperation{Face, Face, Center}(F_δ_hor_func,  grid, other_args)
+@inline F_δ_vrt_op  = KernelFunctionOperation{Face, Face, Center}(F_δ_vrt_func,  grid, other_args)
+@inline F_δ_cor_op  = KernelFunctionOperation{Face, Face, Center}(F_δ_cor_func,  grid, other_args)
+@inline F_δ_prs_op  = KernelFunctionOperation{Face, Face, Center}(F_δ_prs_func,  grid, other_args)
+@inline δ_h_visc_op = KernelFunctionOperation{Face, Face, Center}(δ_h_visc_func, grid, other_args)
+@inline δ_v_visc_op = KernelFunctionOperation{Face, Face, Center}(δ_v_visc_func, grid, other_args)
+@inline u_t_op      = KernelFunctionOperation{Face,Center,Center}(u_t_func,      grid, other_args)
+@inline u_adv_op    = KernelFunctionOperation{Face,Center,Center}(u_adv_func,    grid, other_args)
+ζ_t      = Field(ζ_t_op)
+ζ_adv    = Field(ζ_adv_op)
+ζ_err    = Field(ζ_err_op)
+F_ζ_hor  = Field(F_ζ_hor_op)
+F_ζ_vrt  = Field(F_ζ_vrt_op)
+F_ζ_cor  = Field(F_ζ_cor_op)
+ζ_h_visc = Field(ζ_h_visc_op)
+ζ_v_visc = Field(ζ_v_visc_op)
+δ_t      = Field(δ_t_op)
+δ_adv    = Field(δ_adv_op)
+δ_err    = Field(δ_err_op)
+F_δ_hor  = Field(F_δ_hor_op)
+F_δ_vrt  = Field(F_δ_vrt_op)
+F_δ_cor  = Field(F_δ_cor_op)
+F_δ_prs  = Field(F_δ_prs_op)
+δ_h_visc = Field(δ_h_visc_op)
+δ_v_visc = Field(δ_v_visc_op)
+u_t      = Field(u_t_op)
+u_adv    = Field(u_adv_op)
 
-zs = parent(grid.zᵃᵃᶜ)
-ζ_tendency_func(z₀) = interpolate((x, y, z₀), ζ_tendency)
-ζ_visc_func(z₀) = interpolate((x, y, z₀), ζ_visc)
-ζ_cor_func(z₀) = interpolate((x, y, z₀), ζ_cor)
-ζ_div𝐯_func(z₀) = interpolate((x, y, z₀), ζ_div𝐯)
-ζ_adv_func(z₀) = interpolate((x, y, z₀), ζ_adv)
-F_ζ_hor_func(z₀) = interpolate((x, y, z₀), F_ζ_hor)
-F_ζ_vrt_func(z₀) = interpolate((x, y, z₀), F_ζ_vrt)
-ζ_err_func(z₀) = interpolate((x, y, z₀), ζ_err)
-ζ_tendencys = ζ_tendency_func.(zs)
-ζ_viscs = ζ_visc_func.(zs)
-ζ_cors = ζ_cor_func.(zs)
-ζ_div𝐯s = ζ_div𝐯_func.(zs)
-ζ_advs = ζ_adv_func.(zs)
-F_ζ_hors = F_ζ_hor_func.(zs)
-F_ζ_vrts = F_ζ_vrt_func.(zs)
-ζ_errs = ζ_err_func.(zs)
+auxiliary_fields = (; ζ, δ, ζ_t, ζ_adv, ζ_err, F_ζ_hor, F_ζ_vrt, F_ζ_cor, ζ_h_visc, ζ_v_visc, δ_t, δ_adv, δ_err, F_δ_hor, F_δ_vrt, F_δ_cor, F_δ_prs, δ_h_visc, δ_v_visc, u_t, u_adv)
+drifter_fields = (; ζ, δ, ζ_t, ζ_adv, ζ_err, F_ζ_hor, F_ζ_vrt, F_ζ_cor, ζ_h_visc, ζ_v_visc, δ_t, δ_adv, δ_err, F_δ_hor, F_δ_vrt, F_δ_cor, F_δ_prs, δ_h_visc, δ_v_visc, u, u_t, u_adv)
 
-fig = Figure()
-ax = Axis(fig[1, 1], title = "𝐳̂⋅∇×(∇⋅(𝐮𝐮))")
-# lines!(ax, zs, ζ_div𝐯s, label = "𝐳̂⋅∇×(∇⋅(𝐮𝐮)) (theirs)")
-# lines!(ax, zs, (ζ_advs - F_ζ_hors - F_ζ_vrts + ζ_errs), label = "𝐳̂⋅∇×(∇⋅(𝐮𝐮)) (mine)")
-lines!(ax, zs, ζ_tendencys, label = "ζ_tendency (theirs)")
-lines!(ax, zs, -ζ_advs - ζ_errs + F_ζ_hors + F_ζ_vrts + ζ_viscs + ζ_cors, label = "ζ_tendency (mine)")
-#=lines!(ax, zs, ζ_advs, label = "ζ_adv", linestyle = :dash)
-lines!(ax, zs, F_ζ_hors, label = "F_ζ_hor", linestyle = :dash)
-lines!(ax, zs, F_ζ_vrts, label = "F_ζ_vrt", linestyle = :dash)
-lines!(ax, zs, ζ_errs, label = "ζ_err", linestyle = :dot)
-lines!(ax, zs, ζ_tendencys, label = "ζ_tendency", linestyle = :dot)
-lines!(ax, zs, ζ_viscs, label = "ζ_visc", linestyle = :dot)
-lines!(ax, zs, ζ_cors, label = "ζ_cor", linestyle = :dot)=#
-Legend(fig[1, 2], ax, title = "Legend", position = :bottomright, fontsize = 10, colorbar = false)
-display(fig)
-
-# Note that the budget doesn't hold at i ≤ 1 in this worked example,
-# but it seems to hold fine for a running simulation. Not sure why.
-
-#=diffs = zeros(Float64, 20)
-x_p, y_p, z_p = rand(Float64, 3) * 2π
-ζ_tendency_p = interpolate((x_p, y_p, z_p), ζ_tendency)
-ζ_adv_p = interpolate((x_p, y_p, z_p), ζ_adv)
-ζ_err_p = interpolate((x_p, y_p, z_p), ζ_err)
-F_ζ_hor_p = interpolate((x_p, y_p, z_p), F_ζ_hor)
-F_ζ_vrt_p = interpolate((x_p, y_p, z_p), F_ζ_vrt)
-ζ_cor_p = interpolate((x_p, y_p, z_p), ζ_cor)
-ζ_visc_p = interpolate((x_p, y_p, z_p), ζ_visc)
-fields = (; ζ_tendency, ζ_adv, ζ_err, F_ζ_hor, F_ζ_vrt, ζ_cor, ζ_visc)
-@info ζ_tendency_p + ζ_adv_p + ζ_err_p - F_ζ_hor_p - F_ζ_vrt_p - ζ_cor_p - ζ_visc_p
-for key in keys(fields)
-    field = fields[key]
-    if field isa Oceananigans.AbstractOperations.BinaryOperation
-        @info key
-    end
-end
-# Works perfectly=#
-
-function grid_interpolateᶠᶠᶜ(grid, field, x::Float64, y::Float64)   # Interpolate var to surface position (x, y) between gridpoints
-
-
-    i₋ = Int(floor(x/grid.Lx * grid.Nx)) + 1
-    j₋ = Int(floor(y/grid.Ly * grid.Ny)) + 1
-    @info i₋, j₋
-    i₊ = i₋ % grid.Nx + 1
-    j₊ = j₋ % grid.Ny + 1
-    x_frac = (x - grid.xᶠᵃᵃ[i₋]) / grid.Δxᶠᵃᵃ
-    y_frac = (y - grid.yᵃᶠᵃ[j₋]) / grid.Δyᵃᶠᵃ
-    @info x_frac, y_frac
-
-    f₋₋ = field[i₋, j₋, 1]
-    f₋₊ = field[i₋, j₊, 1]
-    f₊₋ = field[i₊, j₋, 1]
-    f₊₊ = field[i₊, j₊, 1]
-    f = (1-x_frac) * (1-y_frac) * f₋₋ + (1-x_frac) * y_frac * f₋₊ + x_frac * (1-y_frac) * f₊₋ + x_frac * y_frac * f₊₊
-    
-    return f
-
-end
+# lagrangian_drifters = LagrangianParticles(particles; tracked_fields = drifter_fields)
+# 
+# # Remember to use CuArray instead of regular Array when storing particle locations and properties on the GPU?????
+# 
+# # Build the model
+# model = NonhydrostaticModel(; grid,
+#             advection = params.advection_scheme(),  # Specify the advection scheme.  Another good choice is WENO() which is more accurate but slower
+#             timestepper = :RungeKutta3, # Set the timestepping scheme, here 3rd order Runge-Kutta
+#             tracers = tracers,  # Set the name(s) of any tracers; here, b is buoyancy
+#             velocities = velocities,
+#             auxiliary_fields = auxiliary_fields,
+#             nonhydrostatic_pressure = pNHS,
+#             hydrostatic_pressure_anomaly = pHY′,
+#             buoyancy = BuoyancyTracer(), # this tells the model that b will act as the buoyancy (and influence momentum)
+#             background_fields = (b = B_field, u = U_field),
+#             coriolis = coriolis = FPlane(f = f),
+#             closure = (diff_h, diff_v),
+#             boundary_conditions = BCs,
+#             particles = lagrangian_drifters)
+# 
+# # Set initial conditions
+# set!(model, u = ic.u, v = ic.v, w = ic.w, b = ic.b)
+# 
+# # Build the simulation
+# simulation = Simulation(model, Δt = minimum([max_Δt/10, phys_params.T/100]), stop_time = duration)
+# 
+# # ### The `TimeStepWizard`
+# #
+# # The TimeStepWizard manages the time-step adaptively, keeping the
+# # Courant-Freidrichs-Lewy (CFL) number close to `1.0` while ensuring
+# # the time-step does not increase beyond the maximum allowable value
+# if :diffusive_cfl in keys(params)
+#     wizard = TimeStepWizard(cfl = 0.5, diffusive_cfl = params.diffusive_cfl, max_change = 1.1, max_Δt = max_Δt)
+# else
+#     wizard = TimeStepWizard(cfl = 0.5, max_change = 1.1, max_Δt = max_Δt)
+# end
+# 
+# # Still some numerical noise at CFL 0.1 for Ri = 10⁴, but none for CFL = 0.05
+# 
+# # A "Callback" pauses the simulation after a specified number of timesteps and calls a function (here the timestep wizard to update the timestep)
+# # To update the timestep more or less often, change IterationInterval in the next line
+# simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(1))
+# 
+# # ### A progress messenger
+# # We add a callback that prints out a helpful bprogress message while the simulation runs.
+# 
+# start_time = time_ns()
+# 
+# progress(sim) = @printf("i: % 6d, sim time: % 10s, wall time: % 10s, Δt: % 10s, CFL: %.2e\n",
+#                         sim.model.clock.iteration,
+#                         prettytime(sim.model.clock.time),
+#                         prettytime(1e-9 * (time_ns() - start_time)),
+#                         sim.Δt,
+#                         AdvectiveCFL(sim.Δt)(sim.model))
+# 
+# simulation.callbacks[:progress] = Callback(progress, IterationInterval(100))
+# 
+# # ### Output
+# 
+# u = Field(model.velocities.u + model.background_fields.velocities.u)    # Unpack velocity `Field`s
+# v = Field(model.velocities.v)
+# w = Field(model.velocities.w)
+# b = Field(model.tracers.b + model.background_fields.tracers.b)          # Extract the buoyancy and add the background field
+# b_pert = Field(model.tracers.b)
+# p = Field(model.pressures.pNHS + model.pressures.pHY′)
+# 
+# #=# Compute y-averages 𝐮̅(x,z) and b̅(x,z)
+# u̅ = Field(Average(u, dims = 2))
+# v̅ = Field(Average(v, dims = 2))
+# w̅ = Field(Average(w, dims = 2))
+# b̅ = Field(Average(b, dims = 2))
+# ℬ = Field(w * b_pert)
+# avg_ℬ = Field(Average(ℬ, dims = 2))=#
+# 
+# # Output Lagrangian particles
+# filename = dir * "particles"
+# simulation.output_writers[:particles] =
+#     JLD2OutputWriter(model, (particles = model.particles,),
+#                             filename = filename * ".jld2",
+#                             schedule = TimeInterval(phys_params.T/30),
+#                             overwrite_existing = true)
+# 
+# # Output the slice y = 0
+# #=filename = dir * "BI_xz"
+# simulation.output_writers[:xz_slices] =
+#     JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, fζ_g),
+#                             filename = filename * ".jld2",
+#                             indices = (:, 1, :),
+#                             schedule = TimeInterval(phys_params.T/30),
+#                             overwrite_existing = true)=#
+# 
+# # Output the slice z = 0
+# filename = dir * "BI_xy"
+# simulation.output_writers[:xy_slices] =
+#     JLD2OutputWriter(model, (; u, v, w, b, p, ζ, δ, ζ_t, ζ_adv, δ_t, δ_adv, u_t, u_adv),
+#                             filename = filename * ".jld2",
+#                             indices = (:, :, resolution[3]),
+#                             schedule = TimeInterval(phys_params.T/30),
+#                             overwrite_existing = true,
+#                             with_halos = true)
+# 
+# # simulation.output_writers[:checkpointer] = Checkpointer(model, schedule=IterationInterval(2000), prefix="model_checkpoint")
+# # get scalarindex gpu error when add above line (so don't)
+# 
+# #=filename = dir * "full"
+# simulation.output_writers[:full] =
+#     JLD2OutputWriter(model, (; u, v, w, b),
+#                             filename = filename * ".jld2",
+#                             schedule = TimeInterval(duration),
+#                             overwrite_existing = true)=#
+# # better way to reload from previous point when on GPU
+# 
+# nothing # hide
+# 
+# # Now, run the simulation
+# @printf("Simulation will last %s\n", prettytime(duration))
+# run!(simulation)
