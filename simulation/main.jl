@@ -9,9 +9,12 @@ include("inputs/" * label * ".jl")
 @info label
 dir = "raw_data/" * label * "/"
 if isdir(dir)
-    throw("Output directory for label " * label * " already exists")
+    if length(readdir(dir)) > 0
+        throw("Output directory for label " * label * " already used")
+    end
+    @info "Outputting to empty directory: " * dir
 else
     mkdir(dir)
     @info "Created directory for simulation with label " * label
-    run_sim(sim_params(), label)
 end
+run_sim(sim_params(), label)
