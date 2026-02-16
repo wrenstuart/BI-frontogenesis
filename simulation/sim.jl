@@ -14,6 +14,7 @@ using Oceananigans.Architectures: arch_array
 
 include("../QOL.jl")
 include("../instabilities/modes.jl")
+include("../io.jl")
 include("tendies2.jl")
 
 function physical_quantities_from_inputs(Ri, s)
@@ -84,26 +85,28 @@ end
 
 function run_sim(params, label)
 
+    doubleoutput("Calculating physical parameters, including initial conditions", label)
+
     resolution = params.res
 
     phys_params, domain, ic, background, BCs = physical_quantities_from_inputs(params.Ri, params.s)
     f = phys_params.f
 
-    # Set the time-stepping parameters
+    doubleoutput("Calculating least stable mode", label)
     max_Δt = 0.4 * pi / (phys_params.N²^0.5)
     duration = 8 / real(least_stable_mode(params.Ri, 2π/domain.x, 0, rate_only = true))
     if params.short_duration
         duration = duration / 20
     end
 
-    # Build the grid
+    doubleoutput("Building the grid", label)
     if params.GPU
         grid = RectilinearGrid(GPU(), size = resolution, x = (0, domain.x), y = (0, domain.y), z = (-domain.z, 0), topology = (Periodic, Periodic, Bounded))
     else
         grid = RectilinearGrid(size = resolution, x = (0, domain.x), y = (0, domain.y), z = (-domain.z, 0), topology = (Periodic, Periodic, Bounded))
     end
 
-    # Set the diffusivities and background fields
+    doubleoutput("Setting diffusivities and background fields", label)
     B_field = BackgroundField(background.B)
     U_field = BackgroundField(background.U)
     if sim_params().horizontal_hyperviscosity
@@ -113,7 +116,7 @@ function run_sim(params, label)
     end
     diff_v = VerticalScalarDiffusivity(ν = params.ν_v, κ = params.ν_v)
 
-    # Introduce Lagrangian particles in an n × n grid
+    doubleoutput("Generating particle array", label)
     x₀ = Array{Float64, 1}(undef, n_d^2)
     y₀ = Array{Float64, 1}(undef, n_d^2)
     @unroll for i = 0 : n_d^2-1
@@ -126,14 +129,9 @@ function run_sim(params, label)
     O = params.GPU ? () -> CuArray(zeros(n_d^2)) : () -> zeros(n_d^2)
     particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
 
-    @inline function ∂²zᵃᵃᶠ_top(i, j, k, grid, u)
-        δz² = Δzᶠᶠᶜ(i, j, k, grid)^2
-        δ²u = (3u[i, j, k] - 7u[i, j, k-1] + 5u[i, j, k-2] - u[i, j, k-3]) / 2
-        return δ²u/δz²
-    end
     ∇ₕ²(𝑓) = ∂x(∂x(𝑓)) + ∂y(∂y(𝑓))
 
-    # Extract fundamental variable fields:
+    doubleoutput("Building fundamental fields", label)
     velocities = VelocityFields(grid)
     u, v, w = velocities
     tracers = TracerFields((:b,), grid)
@@ -169,6 +167,7 @@ function run_sim(params, label)
                 hydrostatic_pressure = pHY′,
                 nonhydrostatic_pressure = pNHS)
 
+    doubleoutput("Generating operators from kernels", label)
     @inline ζ_t_op      = KernelFunctionOperation{Face, Face, Center}(ζ_t_func,      grid, other_args)
     @inline ζ_adv_op    = KernelFunctionOperation{Face, Face, Center}(ζ_adv_func,    grid, other_args)
     @inline ζ_err_op    = KernelFunctionOperation{Face, Face, Center}(ζ_err_func,    grid, other_args)
@@ -186,6 +185,7 @@ function run_sim(params, label)
     @inline F_δ_prs_op  = KernelFunctionOperation{Face, Face, Center}(F_δ_prs_func,  grid, other_args)
     @inline δ_h_visc_op = KernelFunctionOperation{Face, Face, Center}(δ_h_visc_func, grid, other_args)
     @inline δ_v_visc_op = KernelFunctionOperation{Face, Face, Center}(δ_v_visc_func, grid, other_args)
+    doubleoutput("Generalting fields from operators", label)
     ζ_t      = Field(ζ_t_op)
     ζ_adv    = Field(ζ_adv_op)
     ζ_err    = Field(ζ_err_op)
@@ -207,11 +207,12 @@ function run_sim(params, label)
     auxiliary_fields = (; ζ, δ, ζ_t, ζ_adv, ζ_err, F_ζ_hor, F_ζ_vrt, F_ζ_cor, ζ_h_visc, ζ_v_visc, δ_t, δ_adv, δ_err, F_δ_hor, F_δ_vrt, F_δ_cor, F_δ_prs, δ_h_visc, δ_v_visc)
     drifter_fields = (; ζ, δ, ζ_t, ζ_adv, ζ_err, F_ζ_hor, F_ζ_vrt, F_ζ_cor, ζ_h_visc, ζ_v_visc, δ_t, δ_adv, δ_err, F_δ_hor, F_δ_vrt, F_δ_cor, F_δ_prs, δ_h_visc, δ_v_visc)
 
+    doubleoutput("Generating particles", label)
     lagrangian_drifters = LagrangianParticles(particles; tracked_fields = drifter_fields)
 
     # Remember to use CuArray instead of regular Array when storing particle locations and properties on the GPU?????
 
-    # Build the model
+    doubleoutput("Building model", label)
     model = NonhydrostaticModel(; grid,
               advection = params.advection_scheme(),  # Specify the advection scheme.  Another good choice is WENO() which is more accurate but slower
               timestepper = :RungeKutta3, # Set the timestepping scheme, here 3rd order Runge-Kutta
@@ -227,10 +228,10 @@ function run_sim(params, label)
               boundary_conditions = BCs,
               particles = lagrangian_drifters)
 
-    # Set initial conditions
+    doubleoutput("Setting initial conditions", label)
     set!(model, u = ic.u, v = ic.v, w = ic.w, b = ic.b)
 
-    # Build the simulation
+    doubleoutput("Building simulation", label)
     simulation = Simulation(model, Δt = minimum([max_Δt/10, phys_params.T/100]), stop_time = duration)
 
     # ### The `TimeStepWizard`
@@ -251,21 +252,25 @@ function run_sim(params, label)
     simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(1))
 
     # ### A progress messenger
-    # We add a callback that prints out a helpful bprogress message while the simulation runs.
+    # We add a callback that prints out a helpful progress message while the simulation runs.
 
     start_time = time_ns()
 
-    progress(sim) = @printf("i: % 6d, sim time: % 10s, wall time: % 10s, Δt: % 10s, CFL: %.2e\n",
+    progress(sim) = begin
+        string = @sprintf("i: % 6d, sim time: % 10s, wall time: % 10s, Δt: % 10s, CFL: %.2e",
                             sim.model.clock.iteration,
                             prettytime(sim.model.clock.time),
                             prettytime(1e-9 * (time_ns() - start_time)),
                             sim.Δt,
                             AdvectiveCFL(sim.Δt)(sim.model))
+        doubleoutput(string, label)
+    end
 
     simulation.callbacks[:progress] = Callback(progress, IterationInterval(100))
 
     # ### Output
 
+    doubleoutput("Defining output fields", label)
     u = Field(model.velocities.u + model.background_fields.velocities.u)    # Unpack velocity `Field`s
     v = Field(model.velocities.v)
     w = Field(model.velocities.w)
@@ -281,12 +286,12 @@ function run_sim(params, label)
     ℬ = Field(w * b_pert)
     avg_ℬ = Field(Average(ℬ, dims = 2))=#
 
-    # Output Lagrangian particles
+    doubleoutput("Setting Lagrangian particle output", label)
     filename = dir * "particles"
     simulation.output_writers[:particles] =
         JLD2OutputWriter(model, (particles = model.particles,),
                                 filename = filename * ".jld2",
-                                schedule = TimeInterval(phys_params.T/30),
+                                schedule = TimeInterval(phys_params.T/150),
                                 overwrite_existing = true)
 
     # Output the slice y = 0
@@ -298,7 +303,7 @@ function run_sim(params, label)
                                 schedule = TimeInterval(phys_params.T/30),
                                 overwrite_existing = true)=#
 
-    # Output the slice z = 0
+    doubleoutput("Setting output for top slice", label)
     filename = dir * "BI_xy"
     simulation.output_writers[:xy_slices] =
         JLD2OutputWriter(model, (; u, v, w, b, p, ζ, δ, ζ_t, ζ_adv, δ_t, δ_adv),
@@ -322,7 +327,8 @@ function run_sim(params, label)
     nothing # hide
 
     # Now, run the simulation
-    @printf("Simulation will last %s\n", prettytime(duration))
+    doubleoutput("Simulation will last " * prettytime(duration), label)
+    doubleoutput("Running simulation...\n", label)
     run!(simulation)
 
 end
