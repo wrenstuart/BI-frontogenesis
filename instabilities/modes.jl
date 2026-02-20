@@ -3,9 +3,7 @@ using Statistics
 include("diff-ops.jl")
 
 function amplitude(u, v, w, b, f, aspect)
-    
     return (mean(abs.(u).^2) + mean(abs.(v).^2) + mean(abs.(w/aspect).^2) + mean(abs.(aspect/f * b).^2)) .^ 0.5
-
 end
 
 function least_stable_mode(Ri, k, l; H = 50, f = 1e-4, νᵥ = 1e-3, νₕ = 1e+1, N² = 1e-4, N = 50, rate_only = false)
@@ -29,30 +27,30 @@ function least_stable_mode(Ri, k, l; H = 50, f = 1e-4, νᵥ = 1e-3, νₕ = 1e+
     ℒ = 𝒟 - ikU
 
     𝒜 = [Id   O    O    O    O;
-        O    Id   O    O    O;
-        O    O    Id   O    O;
-        O    O    O    Id   O;
-        O    O    O    O    O]
+         O    Id   O    O    O;
+         O    O    Id   O    O;
+         O    O    O    Id   O;
+         O    O    O    O    O]
 
     ℬ = [ℒ         f*Id      M²/f*Id   O        -ik;
         -f*Id      ℒ         O         O        -il;
-        O         O         ℒ         Id       -D;
-        O        -M²*Id    -N²*Id     ℒ         O;
-        ik        il        D         O         O]
+         O         O         ℒ         Id       -D;
+         O        -M²*Id    -N²*Id     ℒ         O;
+         ik        il        D         O         O]
 
     Id₀ = Id[1:1, :]
     Id₁ = Id[N:N, :]
-    D₀ = D[1:1, :]
-    D₁ = D[N:N, :]
-    O_ = O[1:1, :]
+    D₀  =  D[1:1, :]
+    D₁  =  D[N:N, :]
+    O_  =  O[1:1, :]
     𝒞 = [D₀  O_  O_  O_  O_;
-        D₁  O_  O_  O_  O_;
-        O_  D₀  O_  O_  O_;
-        O_  D₁  O_  O_  O_;
-        O_  O_  Id₀ O_  O_;
-        O_  O_  Id₁ O_  O_;
-        O_  O_  O_  D₀  O_;
-        O_  O_  O_  D₁  O_]
+         D₁  O_  O_  O_  O_;
+         O_  D₀  O_  O_  O_;
+         O_  D₁  O_  O_  O_;
+         O_  O_  Id₀ O_  O_;
+         O_  O_  Id₁ O_  O_;
+         O_  O_  O_  D₀  O_;
+         O_  O_  O_  D₁  O_]
     removed = [1, N, N+1, 2N, 2N+1, 3N, 3N+1, 4N]
 
     σ, 𝐯 = evals_with_constraints(𝒜, ℬ, 𝒞, removed)
@@ -96,15 +94,18 @@ function generate_ic(Ri, L, U; N = 50, H = 50)
     v_modes = []
     w_modes = []
     b_modes = []
-    # ~, ~, ~, ~, σ₀ = least_stable_mode(Ri, 4π/L, 0, N = N)
+    ~, ~, ~, ~, σ₀ = least_stable_mode(Ri, 2π/L, 0, N = N)
     for i = -10:10, j = -10:10
-        if !(i == 0 && j == 0)
-            k = i * 2π/L
-            l = j * 2π/L
-            û, v̂, ŵ, b̂, σ = least_stable_mode(Ri, k, l, N = N)
-            A = U * ((i==1 && j==0) ? 0.03 : 0.0005 * rand() * exp(2π*im*rand()))
-            # A = U * 0.01 * 10000^(real(σ)/real(σ₀) - 1) * exp(2π*im*rand())
-            # @info i, j, real(σ)/real(σ₀) - 1
+        if i == 0 && j == 0
+            continue
+        end
+        k = i * 2π/L
+        l = j * 2π/L
+        û, v̂, ŵ, b̂, σ = least_stable_mode(Ri, k, l, N = N)
+        A = U * ((i==1 && j==0) ? 0.03 : 0.0005 * rand() * exp(2π*im*rand()))
+        # A = U * 0.01 * 10000^(real(σ)/real(σ₀) - 1) * exp(2π*im*rand())
+        if real(σ) > 0
+            @info i, j, real(σ), real(σ)/real(σ₀), 10000^(real(σ)/real(σ₀) - 1)
             push!(u_modes, ((k, l), A * û))
             push!(v_modes, ((k, l), A * v̂))
             push!(w_modes, ((k, l), A * ŵ))
@@ -117,11 +118,10 @@ function generate_ic(Ri, L, U; N = 50, H = 50)
         i = 1 + (length(f)-1) * x
         if isinteger(i)
             return f[Int(i)]
-        else
-            i₀ = Int(floor(i))
-            i₁ = Int(ceil(i))
-            return (i₁-i) * f[i₀] + (i-i₀) * f[i₁]
         end
+        i₀ = Int(floor(i))
+        i₁ = Int(ceil(i))
+        return (i₁-i) * f[i₀] + (i-i₀) * f[i₁]
     end
 
     function uᵢ(x, y, z)
