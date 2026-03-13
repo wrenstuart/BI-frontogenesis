@@ -1,5 +1,6 @@
 # Functions for running an individual simulation
 
+using Dates
 using Printf
 using Unroll
 using CUDA
@@ -15,27 +16,21 @@ using Oceananigans.Architectures: arch_array
 include("../QOL.jl")
 include("../instabilities/modes.jl")
 include("../io.jl")
-include("tendies2.jl")
+include("tendies.jl")
 
 function physical_quantities_from_inputs(Ri, s)
 
     # Get the dimensional parameters of the problem
     p = get_scales(Ri, s)
 
-    # Set the viscosities
-
     # Set the domain size
     Lx = 2π * p.L * 0.4^0.5 # Zonal extent, set to 2 wavelengths of the most unstable mode
     Ly = Lx                     # Meridional extent
     Lz = p.H                    # Vertical extent
 
-    # Set relative amplitude for random velocity perturbation
-
-    B₀(x, y, z, t) = p.M² * y + p.N² * z    # Buoyancy
-    U₀(x, y, z, t) = -p.M²/p.f * (z + Lz)   # Zonal velocity
-
-    # Set the initial perturbation conditions, a random velocity perturbation
-    uᵢ, vᵢ, wᵢ, bᵢ = generate_ic(Ri, Lx, p.U)
+    B₀(x, y, z, t) = p.M² * y + p.N² * z        # Buoyancy
+    U₀(x, y, z, t) = -p.M²/p.f * (z + Lz)       # Zonal velocity
+    uᵢ, vᵢ, wᵢ, bᵢ = generate_ic(Ri, Lx, p.U)   # Initial conditions
 
     u_bcs = FieldBoundaryConditions(top = GradientBoundaryCondition(0.0),
                                     bottom = GradientBoundaryCondition(0.0))
@@ -85,10 +80,11 @@ end
 
 function run_sim(params, label)
 
+    start_time = time_ns() * 1e-9
+    wall_time_limit = 10*60         # (in seconds)
+
     doubleoutput("Calculating physical parameters, including initial conditions", label)
-
     resolution = params.res
-
     phys_params, domain, ic, background, BCs = physical_quantities_from_inputs(params.Ri, params.s)
     f = phys_params.f
 
@@ -129,8 +125,6 @@ function run_sim(params, label)
     O = params.GPU ? () -> CuArray(zeros(n_d^2)) : () -> zeros(n_d^2)
     particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
 
-    ∇ₕ²(𝑓) = ∂x(∂x(𝑓)) + ∂y(∂y(𝑓))
-
     doubleoutput("Building fundamental fields", label)
     velocities = VelocityFields(grid)
     u, v, w = velocities
@@ -138,10 +132,9 @@ function run_sim(params, label)
     b, = tracers
     pHY′ = CenterField(grid)
     pNHS = CenterField(grid)
-
     p = pHY′ + pNHS
-    ζ = ∂x(v) - ∂y(u)
-    δ = ∂x(u) + ∂y(v)
+    ζ = Field(∂x(v) - ∂y(u))
+    δ = Field(∂x(u) + ∂y(v))
 
     u_back = Field{Face, Center, Center}(grid)
     v_back = Field{Center, Face, Center}(grid)
@@ -155,7 +148,6 @@ function run_sim(params, label)
                         tracers = (b_back))
     closure = (diff_h, diff_v)
     diffusivities = ((ν = params.ν_h, κ = params.ν_h), (ν = params.ν_v, κ = params.ν_v))
-
     other_args = (advection_scheme = params.advection_scheme(),
                 coriolis = FPlane(f = f),
                 closure = closure,
@@ -176,15 +168,16 @@ function run_sim(params, label)
     @inline F_ζ_cor_op  = KernelFunctionOperation{Face, Face, Center}(F_ζ_cor_func,  grid, other_args)
     @inline ζ_h_visc_op = KernelFunctionOperation{Face, Face, Center}(ζ_h_visc_func, grid, other_args)
     @inline ζ_v_visc_op = KernelFunctionOperation{Face, Face, Center}(ζ_v_visc_func, grid, other_args)
-    @inline δ_t_op      = KernelFunctionOperation{Face, Face, Center}(δ_t_func,      grid, other_args)
-    @inline δ_adv_op    = KernelFunctionOperation{Face, Face, Center}(δ_adv_func,    grid, other_args)
-    @inline δ_err_op    = KernelFunctionOperation{Face, Face, Center}(δ_err_func,    grid, other_args)
-    @inline F_δ_hor_op  = KernelFunctionOperation{Face, Face, Center}(F_δ_hor_func,  grid, other_args)
-    @inline F_δ_vrt_op  = KernelFunctionOperation{Face, Face, Center}(F_δ_vrt_func,  grid, other_args)
-    @inline F_δ_cor_op  = KernelFunctionOperation{Face, Face, Center}(F_δ_cor_func,  grid, other_args)
-    @inline F_δ_prs_op  = KernelFunctionOperation{Face, Face, Center}(F_δ_prs_func,  grid, other_args)
-    @inline δ_h_visc_op = KernelFunctionOperation{Face, Face, Center}(δ_h_visc_func, grid, other_args)
-    @inline δ_v_visc_op = KernelFunctionOperation{Face, Face, Center}(δ_v_visc_func, grid, other_args)
+    @inline δ_t_op      = KernelFunctionOperation{Center, Center, Center}(δ_t_func,      grid, other_args)
+    @inline δ_adv_op    = KernelFunctionOperation{Center, Center, Center}(δ_adv_func,    grid, other_args)
+    @inline δ_err_op    = KernelFunctionOperation{Center, Center, Center}(δ_err_func,    grid, other_args)
+    @inline F_δ_hor_op  = KernelFunctionOperation{Center, Center, Center}(F_δ_hor_func,  grid, other_args)
+    @inline F_δ_vrt_op  = KernelFunctionOperation{Center, Center, Center}(F_δ_vrt_func,  grid, other_args)
+    @inline F_δ_cor_op  = KernelFunctionOperation{Center, Center, Center}(F_δ_cor_func,  grid, other_args)
+    @inline F_δ_prs_op  = KernelFunctionOperation{Center, Center, Center}(F_δ_prs_func,  grid, other_args)
+    @inline δ_h_visc_op = KernelFunctionOperation{Center, Center, Center}(δ_h_visc_func, grid, other_args)
+    @inline δ_v_visc_op = KernelFunctionOperation{Center, Center, Center}(δ_v_visc_func, grid, other_args)
+
     doubleoutput("Generalting fields from operators", label)
     ζ_t      = Field(ζ_t_op)
     ζ_adv    = Field(ζ_adv_op)
@@ -213,7 +206,7 @@ function run_sim(params, label)
     # Remember to use CuArray instead of regular Array when storing particle locations and properties on the GPU?????
 
     doubleoutput("Building model", label)
-    model = NonhydrostaticModel(; grid,
+    model = NonhydrostaticModel(grid;
               advection = params.advection_scheme(),  # Specify the advection scheme.  Another good choice is WENO() which is more accurate but slower
               timestepper = :RungeKutta3, # Set the timestepping scheme, here 3rd order Runge-Kutta
               tracers = tracers,  # Set the name(s) of any tracers; here, b is buoyancy
@@ -232,7 +225,7 @@ function run_sim(params, label)
     set!(model, u = ic.u, v = ic.v, w = ic.w, b = ic.b)
 
     doubleoutput("Building simulation", label)
-    simulation = Simulation(model, Δt = minimum([max_Δt/10, phys_params.T/100]), stop_time = duration)
+    simulation = Simulation(model, Δt = minimum([max_Δt/10, phys_params.T/100]), stop_time = duration, wall_time_limit = wall_time_limit)
 
     # ### The `TimeStepWizard`
     #
@@ -253,8 +246,6 @@ function run_sim(params, label)
 
     # ### A progress messenger
     # We add a callback that prints out a helpful progress message while the simulation runs.
-
-    start_time = time_ns()
 
     progress(sim) = begin
         string = @sprintf("i: % 6d, sim time: % 10s, wall time: % 10s, Δt: % 10s, CFL: %.2e",
@@ -289,7 +280,7 @@ function run_sim(params, label)
     doubleoutput("Setting Lagrangian particle output", label)
     filename = dir * "particles"
     simulation.output_writers[:particles] =
-        JLD2OutputWriter(model, (particles = model.particles,),
+        JLD2Writer(model, (particles = model.particles,),
                                 filename = filename * ".jld2",
                                 schedule = TimeInterval(phys_params.T/150),
                                 overwrite_existing = true)
@@ -297,7 +288,7 @@ function run_sim(params, label)
     # Output the slice y = 0
     #=filename = dir * "BI_xz"
     simulation.output_writers[:xz_slices] =
-        JLD2OutputWriter(model, (; u, v, w, b, ζ, δ, fζ_g),
+        JLD2Writer(model, (; u, v, w, b, ζ, δ, fζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, 1, :),
                                 schedule = TimeInterval(phys_params.T/30),
@@ -306,29 +297,22 @@ function run_sim(params, label)
     doubleoutput("Setting output for top slice", label)
     filename = dir * "BI_xy"
     simulation.output_writers[:xy_slices] =
-        JLD2OutputWriter(model, (; u, v, w, b, p, ζ, δ, ζ_t, ζ_adv, δ_t, δ_adv),
+        JLD2Writer(model, (; u, v, w, b, p, ζ, δ),
                                 filename = filename * ".jld2",
                                 indices = (:, :, resolution[3]),
                                 schedule = TimeInterval(phys_params.T/30),
                                 overwrite_existing = true,
                                 with_halos = true)
 
-    # simulation.output_writers[:checkpointer] = Checkpointer(model, schedule=IterationInterval(2000), prefix="model_checkpoint")
-    # get scalarindex gpu error when add above line (so don't)
-
-    #=filename = dir * "full"
-    simulation.output_writers[:full] =
-        JLD2OutputWriter(model, (; u, v, w, b),
-                                filename = filename * ".jld2",
-                                schedule = TimeInterval(duration),
-                                overwrite_existing = true)=#
-    # better way to reload from previous point when on GPU
-
-    nothing # hide
+    # Define a checkpointer, which will be activated when the simulation ends:
+    simulation.output_writers[:checkpointer] = Checkpointer(model;
+                schedule = WallTimeInterval(3wall_time_limit),
+                prefix = dir * "model_checkpoint",
+                overwrite_existing = true)
 
     # Now, run the simulation
     doubleoutput("Simulation will last " * prettytime(duration), label)
     doubleoutput("Running simulation...\n", label)
-    run!(simulation)
+    run!(simulation, checkpoint_at_end = true)
 
 end
