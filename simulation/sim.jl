@@ -78,10 +78,10 @@ struct MyParticle
 
 end
 
-function run_sim(params, label)
+function run_sim(params, label; pickup = false)
 
     start_time = time_ns()          # (in nanoseconds)
-    wall_time_limit = 10*60         # (in seconds)
+    wall_time_limit = 5*60*60       # (in seconds)
 
     doubleoutput("Calculating physical parameters, including initial conditions", label)
     resolution = params.res
@@ -126,16 +126,6 @@ function run_sim(params, label)
     particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
 
     doubleoutput("Building fundamental fields", label)
-    velocities = VelocityFields(grid)
-    u, v, w = velocities
-    tracers = TracerFields((:b,), grid)
-    b, = tracers
-    pHY′ = CenterField(grid)
-    pNHS = CenterField(grid)
-    p = pHY′ + pNHS
-    ζ = ∂x(v) - ∂y(u)
-    δ = ∂x(u) + ∂y(v)
-
     u_back = Field{Face, Center, Center}(grid)
     v_back = Field{Center, Face, Center}(grid)
     w_back = Field{Center, Center, Face}(grid)
@@ -144,6 +134,18 @@ function run_sim(params, label)
     set!(b_back, (x, y, z) -> background.B(x, y, z, 0))
     fill_halo_regions!(u_back)
     fill_halo_regions!(b_back)
+    velocities = VelocityFields(grid)
+    tracers = TracerFields((:b,), grid)
+    u_pert, v, w = velocities
+    b_pert, = tracers
+    u = u_pert + u_back
+    b = b_pert + b_back
+    pHY′ = CenterField(grid)
+    pNHS = CenterField(grid)
+    p = pHY′ + pNHS
+    ζ = ∂x(v) - ∂y(u_pert)
+    δ = ∂x(u_pert) + ∂y(v)
+
     background_fields = (velocities = (u = u_back, v = v_back, w = w_back),
                         tracers = (b_back))
     closure = (diff_h, diff_v)
@@ -160,23 +162,24 @@ function run_sim(params, label)
                 nonhydrostatic_pressure = pNHS)
 
     doubleoutput("Generating operators from kernels", label)
-    @inline ζ_t      = KernelFunctionOperation{Face, Face, Center}(ζ_t_func,      grid, other_args)
-    @inline ζ_adv    = KernelFunctionOperation{Face, Face, Center}(ζ_adv_func,    grid, other_args)
-    @inline ζ_err    = KernelFunctionOperation{Face, Face, Center}(ζ_err_func,    grid, other_args)
-    @inline F_ζ_hor  = KernelFunctionOperation{Face, Face, Center}(F_ζ_hor_func,  grid, other_args)
-    @inline F_ζ_vrt  = KernelFunctionOperation{Face, Face, Center}(F_ζ_vrt_func,  grid, other_args)
-    @inline F_ζ_cor  = KernelFunctionOperation{Face, Face, Center}(F_ζ_cor_func,  grid, other_args)
-    @inline ζ_h_visc = KernelFunctionOperation{Face, Face, Center}(ζ_h_visc_func, grid, other_args)
-    @inline ζ_v_visc = KernelFunctionOperation{Face, Face, Center}(ζ_v_visc_func, grid, other_args)
-    @inline δ_t      = KernelFunctionOperation{Center, Center, Center}(δ_t_func,      grid, other_args)
-    @inline δ_adv    = KernelFunctionOperation{Center, Center, Center}(δ_adv_func,    grid, other_args)
-    @inline δ_err    = KernelFunctionOperation{Center, Center, Center}(δ_err_func,    grid, other_args)
-    @inline F_δ_hor  = KernelFunctionOperation{Center, Center, Center}(F_δ_hor_func,  grid, other_args)
-    @inline F_δ_vrt  = KernelFunctionOperation{Center, Center, Center}(F_δ_vrt_func,  grid, other_args)
-    @inline F_δ_cor  = KernelFunctionOperation{Center, Center, Center}(F_δ_cor_func,  grid, other_args)
-    @inline F_δ_prs  = KernelFunctionOperation{Center, Center, Center}(F_δ_prs_func,  grid, other_args)
-    @inline δ_h_visc = KernelFunctionOperation{Center, Center, Center}(δ_h_visc_func, grid, other_args)
-    @inline δ_v_visc = KernelFunctionOperation{Center, Center, Center}(δ_v_visc_func, grid, other_args)
+    @inline ζ_t      = Field(KernelFunctionOperation{Face, Face, Center}(ζ_t_func,      grid, other_args))
+    @inline ζ_adv    = Field(KernelFunctionOperation{Face, Face, Center}(ζ_adv_func,    grid, other_args))
+    @inline ζ_err    = Field(KernelFunctionOperation{Face, Face, Center}(ζ_err_func,    grid, other_args))
+    @inline F_ζ_hor  = Field(KernelFunctionOperation{Face, Face, Center}(F_ζ_hor_func,  grid, other_args))
+    @inline F_ζ_vrt  = Field(KernelFunctionOperation{Face, Face, Center}(F_ζ_vrt_func,  grid, other_args))
+    @inline F_ζ_cor  = Field(KernelFunctionOperation{Face, Face, Center}(F_ζ_cor_func,  grid, other_args))
+    @inline ζ_h_visc = Field(KernelFunctionOperation{Face, Face, Center}(ζ_h_visc_func, grid, other_args))
+    @inline ζ_v_visc = Field(KernelFunctionOperation{Face, Face, Center}(ζ_v_visc_func, grid, other_args))
+    @inline δ_t      = Field(KernelFunctionOperation{Center, Center, Center}(δ_t_func,      grid, other_args))
+    @inline δ_adv    = Field(KernelFunctionOperation{Center, Center, Center}(δ_adv_func,    grid, other_args))
+    @inline δ_err    = Field(KernelFunctionOperation{Center, Center, Center}(δ_err_func,    grid, other_args))
+    @inline F_δ_hor  = Field(KernelFunctionOperation{Center, Center, Center}(F_δ_hor_func,  grid, other_args))
+    @inline F_δ_vrt  = Field(KernelFunctionOperation{Center, Center, Center}(F_δ_vrt_func,  grid, other_args))
+    @inline F_δ_cor  = Field(KernelFunctionOperation{Center, Center, Center}(F_δ_cor_func,  grid, other_args))
+    @inline F_δ_prs  = Field(KernelFunctionOperation{Center, Center, Center}(F_δ_prs_func,  grid, other_args))
+    @inline δ_h_visc = Field(KernelFunctionOperation{Center, Center, Center}(δ_h_visc_func, grid, other_args))
+    @inline δ_v_visc = Field(KernelFunctionOperation{Center, Center, Center}(δ_v_visc_func, grid, other_args))
+    fζ_g = - F_δ_prs
 
     drifter_fields = (; ζ, δ, ζ_t, ζ_adv, ζ_err, F_ζ_hor, F_ζ_vrt, F_ζ_cor, ζ_h_visc, ζ_v_visc, δ_t, δ_adv, δ_err, F_δ_hor, F_δ_vrt, F_δ_cor, F_δ_prs, δ_h_visc, δ_v_visc)
 
@@ -200,8 +203,10 @@ function run_sim(params, label)
               boundary_conditions = BCs,
               particles = lagrangian_drifters)
 
-    doubleoutput("Setting initial conditions", label)
-    set!(model, u = ic.u, v = ic.v, w = ic.w, b = ic.b)
+    if !pickup
+        doubleoutput("Setting initial conditions", label)
+        set!(model, u = ic.u, v = ic.v, w = ic.w, b = ic.b)
+    end
 
     doubleoutput("Building simulation", label)
     simulation = Simulation(model, Δt = minimum([max_Δt/10, phys_params.T/100]), stop_time = duration, wall_time_limit = wall_time_limit)
@@ -240,14 +245,6 @@ function run_sim(params, label)
 
     # ### Output
 
-    doubleoutput("Defining output fields", label)
-    u = Field(model.velocities.u + model.background_fields.velocities.u)    # Unpack velocity `Field`s
-    v = Field(model.velocities.v)
-    w = Field(model.velocities.w)
-    b = Field(model.tracers.b + model.background_fields.tracers.b)          # Extract the buoyancy and add the background field
-    b_pert = Field(model.tracers.b)
-    p = Field(model.pressures.pNHS + model.pressures.pHY′)
-
     #=# Compute y-averages 𝐮̅(x,z) and b̅(x,z)
     u̅ = Field(Average(u, dims = 2))
     v̅ = Field(Average(v, dims = 2))
@@ -261,17 +258,17 @@ function run_sim(params, label)
     simulation.output_writers[:particles] =
         JLD2Writer(model, (particles = model.particles,),
                                 filename = filename * ".jld2",
-                                schedule = TimeInterval(phys_params.T/150),
+                                schedule = TimeInterval(phys_params.T/30),
                                 overwrite_existing = true)
 
-    # Output the slice y = 0
-    #=filename = dir * "BI_xz"
+    doubleoutput("Setting outptut for vertical slice", label)
+    filename = dir * "BI_xz"
     simulation.output_writers[:xz_slices] =
-        JLD2Writer(model, (; u, v, w, b, ζ, δ, fζ_g),
+        JLD2Writer(model, (; u, v, w, b, p, ζ, δ, fζ_g),
                                 filename = filename * ".jld2",
                                 indices = (:, 1, :),
                                 schedule = TimeInterval(phys_params.T/30),
-                                overwrite_existing = true)=#
+                                overwrite_existing = true)
 
     doubleoutput("Setting output for top slice", label)
     filename = dir * "BI_xy"
@@ -285,13 +282,14 @@ function run_sim(params, label)
 
     # Define a checkpointer, which will be activated when the simulation ends:
     simulation.output_writers[:checkpointer] = Checkpointer(model;
+                dir = dir,
                 schedule = WallTimeInterval(3wall_time_limit),
-                prefix = dir * "model_checkpoint",
+                prefix = "model_checkpoint",
                 overwrite_existing = true)
 
     # Now, run the simulation
     doubleoutput("Simulation will last " * prettytime(duration), label)
     doubleoutput("Running simulation...\n", label)
-    run!(simulation, checkpoint_at_end = true)
+    run!(simulation; checkpoint_at_end = true, pickup = pickup)
 
 end
