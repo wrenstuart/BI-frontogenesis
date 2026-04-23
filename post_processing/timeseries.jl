@@ -3,7 +3,7 @@ include("pp-io.jl")
 include("drifters-refactored.jl")
 
 f = 1e-4
-label = "addednhspressure"
+label = "randomised-drifter-ics-quick-test"
 
 indexnearest(arr::Array, val) = argmin(abs.(arr .- val))
 indexnearest(range::StepRangeLen, val) = Int(round(Float64((val-range.ref)/range.step))) + range.offset
@@ -34,9 +34,10 @@ function plot_lagr_ζ_budget(label::String, drifter_num::Int64)
     check_pp_dir(label)
     t, tracked_drifter_data = extract_tracked_drifter_data(label)
 
-    #i₀ = argmin(abs.(t .- 15/f))
-    #i₁ = argmin(abs.(t .- 20/f))
-    i₀ = Int(round(length(tracked_drifter_data[1])/2))
+    # i₀ = argmin(abs.(t .- 15/f))
+    # i₁ = argmin(abs.(t .- 20/f))
+    # i₀ = Int(round(length(tracked_drifter_data[1])/2))
+    i₀ = 1
     i₁ = length(tracked_drifter_data[1])
 
     t = t[i₀:i₁]
@@ -177,7 +178,7 @@ function highζ_tsample(drifter)
     is = 1 : length(drifter)
     ζ = map(d -> d.ζ, drifter)
     i₀ = argmax(ζ)
-    if ζ[i₀] < 10f
+    if ζ[i₀] < 5f
         return 1:0, i₀
     end
     i⁻ = argmax(ζ .> f)
@@ -190,11 +191,12 @@ function addvarstototaloutput!(varoutput, var, drifter, drifter_bins)
     for (i, d) in enumerate(drifter)
         bin = drifter_bins[i]
         bin = bin == 0 ? 1 : bin
+        bin = bin == 301 ? 300 : bin
         varoutput[bin] += var.func(d)
     end
 end
 
-function budgetaggregated(vars, label = "more-drifters", n_bins = 300)
+function budgetaggregated(vars, label = label, n_bins = 300)
 
     t, drifters = extract_tracked_drifter_data(label)
     n_drifters = length(drifters)
@@ -216,6 +218,7 @@ function budgetaggregated(vars, label = "more-drifters", n_bins = 300)
     Δt = (maxrelativet - minrelativet) / n_bins
     relativetbins = range(start = minrelativet + Δt/2, stop = maxrelativet - Δt/2, length = n_bins)
     varoutputstotal = [zeros(n_bins) for i = 1 : n_vars]
+    varoutputssquaredtotal = [zeros(n_bins) for i = 1 : n_vars]
     freq = zeros(n_bins)
 
     tick()
@@ -224,19 +227,27 @@ function budgetaggregated(vars, label = "more-drifters", n_bins = 300)
         drifter_bins = [indexnearest(relativetbins, relt) for relt in relativets]
         for bin in drifter_bins
             bin = bin == 0 ? 1 : bin
+            bin = bin == 301 ? 300 : bin
             freq[bin] += 1
         end
         for j = 1 : n_vars
             addvarstototaloutput!(varoutputstotal[j], vars[j], drifters[i][ranges[i]], drifter_bins)
+            addvarstototaloutput!(varoutputssquaredtotal[j], (; func = d -> vars[j].func(d)^2), drifters[i][ranges[i]], drifter_bins)
         end
     end
     @info tok()
     varoutputsmean = [varoutputtotal ./ freq for varoutputtotal in varoutputstotal]
+    varoutputsmeansquared = [varoutputmean.^2 for varoutputmean in varoutputsmean]
+    varoutputssquaredmean = [varoutputsquaredtotal ./ freq for varoutputsquaredtotal in varoutputssquaredtotal]
+    varoutputsvariance = varoutputssquaredmean - varoutputsmeansquared
+    varoutputsstddev = [[σ² > 0 ? σ²^0.5 : 0 for σ² in varoutputvariance] for varoutputvariance in varoutputsvariance]
 
     fig = Figure()
     ax = Axis(fig[1, 1])
     for (i, var) in enumerate(vars)
-        lines!(ax, f*relativetbins, varoutputsmean[i], label = var.label)
+        lines!(ax, f*relativetbins, varoutputsmean[i], label = var.label, color = Makie.wong_colors()[i])
+        lines!(ax, f*relativetbins, varoutputsmean[i] + varoutputsstddev[i], color = Makie.wong_colors()[i], linestyle = :dash)
+        lines!(ax, f*relativetbins, varoutputsmean[i] - varoutputsstddev[i], color = Makie.wong_colors()[i], linestyle = :dash)
     end
     axislegend(position=:lb)
     display(fig)

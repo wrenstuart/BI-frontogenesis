@@ -113,16 +113,12 @@ function run_sim(params, label; pickup = false)
     diff_v = VerticalScalarDiffusivity(ν = params.ν_v, κ = params.ν_v)
 
     doubleoutput("Generating particle array", label)
-    x₀ = Array{Float64, 1}(undef, n_d^2)
-    y₀ = Array{Float64, 1}(undef, n_d^2)
-    @unroll for i = 0 : n_d^2-1
-        x₀[i+1] = domain.x * (i % n_d) / n_d
-        y₀[i+1] = domain.y * (i ÷ n_d) / n_d
-    end
+    x₀ = domain.x * rand(n_d)
+    y₀ = domain.y * rand(n_d)
     if params.GPU
         x₀, y₀ = CuArray.([x₀, y₀])
     end
-    O = params.GPU ? () -> CuArray(zeros(n_d^2)) : () -> zeros(n_d^2)
+    O = params.GPU ? () -> CuArray(zeros(n_d)) : () -> zeros(n_d)
     particles = StructArray{MyParticle}((x₀, y₀, O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O(), O()))
 
     doubleoutput("Building fundamental fields", label)
@@ -261,21 +257,32 @@ function run_sim(params, label; pickup = false)
                                 schedule = TimeInterval(phys_params.T/30),
                                 overwrite_existing = true)
 
-    doubleoutput("Setting outptut for vertical slice", label)
+    doubleoutput("Setting outptut for vertical slices", label)
     filename = dir * "BI_xz"
-    simulation.output_writers[:xz_slices] =
-        JLD2Writer(model, (; u, v, w, b, p, ζ, δ, fζ_g),
-                                filename = filename * ".jld2",
-                                indices = (:, 1, :),
-                                schedule = TimeInterval(phys_params.T/30),
-                                overwrite_existing = true)
+    ys = 1 : Int(round(resolution[2]/4)) : resolution[2]-1
+    for i = 0 : 3
+        simulation.output_writers[Symbol("xz_slices"*string(i))] =
+            JLD2Writer(model, (; u, v, w, b, p, ζ, δ, fζ_g),
+                                    filename = filename * "_" * string(i) * ".jld2",
+                                    indices = (:, ys[i+1], :),
+                                    schedule = TimeInterval(phys_params.T/30),
+                                    overwrite_existing = true)
+    end
 
-    doubleoutput("Setting output for top slice", label)
-    filename = dir * "BI_xy"
-    simulation.output_writers[:xy_slices] =
+    doubleoutput("Setting output for horizontal slices", label)
+    filename = dir * "BI_xy_top"
+    simulation.output_writers[:xy_slices_top] =
         JLD2Writer(model, (; u, v, w, b, p, ζ, δ),
                                 filename = filename * ".jld2",
                                 indices = (:, :, resolution[3]),
+                                schedule = TimeInterval(phys_params.T/30),
+                                overwrite_existing = true,
+                                with_halos = true)
+    filename = dir * "BI_xy_bottom"
+    simulation.output_writers[:xy_slices_bottom] =
+        JLD2Writer(model, (; u, v, w, b, p, ζ, δ),
+                                filename = filename * ".jld2",
+                                indices = (:, :, 1),
                                 schedule = TimeInterval(phys_params.T/30),
                                 overwrite_existing = true,
                                 with_halos = true)

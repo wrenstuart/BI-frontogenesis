@@ -32,7 +32,7 @@ end
 
 function topdata(label::String) :: FileData
 
-    filename_xy_top = data_dir(label) * "BI_xy.jld2"
+    filename_xy_top = data_dir(label) * "BI_xy_top.jld2"
     file = jldopen(filename_xy_top)
     xᶜ = file["grid/xᶜᵃᵃ"][4:end-3] # Equivalent to nodes(δ)[1] in other bits of code
     xᶠ = file["grid/xᶠᵃᵃ"][4:end-3] # Equivalent to nodes(ζ)[1] in other bits of code

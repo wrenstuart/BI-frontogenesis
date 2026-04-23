@@ -6,6 +6,8 @@ include("drifters-refactored.jl")
 ζ(drifter) = map(d -> d.ζ, drifter)
 δ(drifter) = map(d -> d.δ, drifter)
 
+f = 1e-4
+
 function addphasepath!(t_reptot, n_visitstot, xs, ys, t::Vector{<:AbstractFloat}, drifter, var1::Symbol, var2::Symbol, t_repfunc::Function)
     n_iters = length(drifter)
     for i = 1 : n_iters
@@ -24,7 +26,10 @@ function t_repfuncgenerate_ζmax(drifter, t)
     tζmax = t[argmax(ζ(drifter))]
     t₀ = t[1]
     t₁ = t[end]
-    t_span = minimum([tζmax-t₀, tζmax-t₁])
+    t_span = max(tζmax-t₀, t₁-tζmax)
+    if t_span == 0
+        @info "aaa"
+    end
     return t -> (t-tζmax)/t_span
 end
 
@@ -51,11 +56,9 @@ function phasepaths(label::String, var1::Symbol = :ζ, var2::Symbol = :δ, t_rep
     # NaN renders as transparent, which is what we want
 
     fig = Figure()
-    ax = Axis(fig[1, 1][1, 1])
-    hm = heatmap!(ax, xs, ys, t_rep; colormap = :seismic, colorrange = (-1, 1))
+    ax = Axis(fig[1, 1][1, 1], xlabel = L"$\zeta/f$", ylabel = L"$\delta/f$")
+    hm = heatmap!(ax, xs/f, ys/f, t_rep; colormap = :seismic, colorrange = (-1, 1))
     Colorbar(fig[1, 1][1, 2], hm)
     display(fig)
 
 end
-
-phasepaths("more-drifters")

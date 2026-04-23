@@ -20,10 +20,10 @@ function ft_display(t::AbstractFloat)
     return L"ft=%$(ft)"
 end
 
-function ani_xy(label::String, a::AbstractFloat, b::AbstractFloat)  # Animate b, ζ and δ at surface
+function ani_xy_top(label::String, a₁::AbstractFloat, a₂::AbstractFloat)  # Animate b, ζ and δ at surface
 
     check_pp_dir(label)
-    filename_xy_top = data_dir(label) * "BI_xy.jld2"
+    filename_xy_top = data_dir(label) * "BI_xy_top.jld2"
 
     # Read in the first iteration. We do this to load the grid
     b_ic = FieldTimeSeries(filename_xy_top, "b", iterations = 0)
@@ -45,20 +45,22 @@ function ani_xy(label::String, a::AbstractFloat, b::AbstractFloat)  # Animate b,
     # Set up observables for plotting that will update as the iteration number is updated
     iter = Observable(0)
     iter_index = lift(iter -> findfirst(x -> x == iter, iterations), iter)
-    ζ_on_f = lift(iter -> file["timeseries/ζ/$iter"][:, :, 1]/f, iter)
-    δ_on_f = lift(iter -> file["timeseries/δ/$iter"][:, :, 1]/f, iter)
-    b_xy = lift(iter -> file["timeseries/b/$iter"][:, :, 1], iter)
+    ζ_on_f = lift(iter -> file["timeseries/ζ/$iter"][4:end-3, 4:end-3, 1]/f, iter)
+    δ_on_f = lift(iter -> file["timeseries/δ/$iter"][4:end-3, 4:end-3, 1]/f, iter)
+    b = lift(iter -> file["timeseries/b/$iter"][4:end-3, 4:end-3, 1], iter)
     t = lift(iter -> file["timeseries/t/$iter"], iter)   # Time elapsed by this iteration
     str_ft = lift(t -> ft_display(t), t)
 
     # Calculate the maximum relative vorticity and buoyancy to set the scale for the colourmap
     ζ_max = 0
     b_max = maximum(b_ic)
+    b_min = minimum(b_ic)
+    Δb = b_max - b_min
     for i = Int(round(length(iterations)/10)) : length(iterations)
         iter[] = iterations[i]
-        ζ_max = maximum([ζ_max, maximum(ζ_on_f[]*f)])
+        ζ_max = max(ζ_max, maximum(ζ_on_f[]*f))
     end
-    ζ_max = minimum([ζ_max, 20f])
+    ζ_max = min(ζ_max, 20f)
 
     iter[] = 0
     ~, drifters = extract_tracked_drifter_data(label)
@@ -72,11 +74,11 @@ function ani_xy(label::String, a::AbstractFloat, b::AbstractFloat)  # Animate b,
 
     # Create the plot, starting at t = 0
     # This will be updated as the observable iter is updated
-    fig = Figure(size = (950, 320))
+    fig = Figure(size = (1000, 320))
     ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$y/\mathrm{km}$", title = L"\text{Buoyancy, }b", width = 200, height = 200)
     ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f", width = 200, height = 200)
     ax_δ = Axis(fig[1, 3][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Horizontal divergence, }\delta/f", width = 200, height = 200)
-    hm_b = heatmap!(ax_b, xb/1kilometer, yb/1kilometer, b_xy; colorrange = (-0.5*b_max, 1.5*b_max));
+    hm_b = heatmap!(ax_b, xb/1kilometer, yb/1kilometer, b; colorrange = (b_min - 0.5Δb, b_max + 0.5Δb));
     sc_b = scatter!(ax_b, xs_dspl, ys_dspl, marker = '.', markersize = 15, color = :black, transparency = true)
     hm_ζ = heatmap!(ax_ζ, xζ/1kilometer, yζ/1kilometer, ζ_on_f; colormap = :coolwarm, colorrange = (-ζ_max/f, ζ_max/f))
     sc_ζ = scatter!(ax_ζ, xs_dspl, ys_dspl, marker = '.', markersize = 15, color = :black, transparency = true)
@@ -92,18 +94,96 @@ function ani_xy(label::String, a::AbstractFloat, b::AbstractFloat)  # Animate b,
     @info "Making an animation from saved data..."
     CairoMakie.record(i -> iter[] = i,
            fig,
-           pp_dir(label) * "bζδ-top-vid.mp4",
-           iterations[maximum([Int64(round(length(iterations) * a )), 1]) : 2 : Int64(round(length(iterations) * b))],
+           pp_dir(label) * "bζδ-xy_top.mp4",
+           iterations[maximum([Int64(round(length(iterations) * a₁)), 1]) : 2 : Int64(round(length(iterations) * a₂))],
            framerate = 20)
 
 end
 
-ani_xy(label::String) = ani_xy(label::String, 0.0, 1.0)
+function ani_xz_0(label::String, a₁::AbstractFloat, a₂::AbstractFloat)  # Animate b, ζ and δ at surface
+
+    check_pp_dir(label)
+    filename_xz_0 = data_dir(label) * "BI_xz_0.jld2"
+
+    # Read in the first iteration. We do this to load the grid
+    b_ic = FieldTimeSeries(filename_xz_0, "b", iterations = 0)
+    ζ_ic = FieldTimeSeries(filename_xz_0, "ζ", iterations = 0)
+    δ_ic = FieldTimeSeries(filename_xz_0, "δ", iterations = 0)
+
+    # Load in co-ordinate arrays
+    # We do this separately for each variable since Oceananigans uses a staggered grid
+    xb, ~, zb = nodes(b_ic)
+    xζ, ~, zζ = nodes(ζ_ic)
+    xδ, ~, zδ = nodes(δ_ic)
+
+    # Now, open the file with our data
+    file = jldopen(filename_xz_0)
+
+    # Extract the values that iter can take
+    iterations = parse.(Int, keys(file["timeseries/t"]))
+
+    # Set up observables for plotting that will update as the iteration number is updated
+    iter = Observable(0)
+    iter_index = lift(iter -> findfirst(x -> x == iter, iterations), iter)
+    ζ_on_f = lift(iter -> file["timeseries/ζ/$iter"][4:end-3, 1, 4:end-3]/f, iter)
+    δ_on_f = lift(iter -> file["timeseries/δ/$iter"][4:end-3, 1, 4:end-3]/f, iter)
+    b = lift(iter -> file["timeseries/b/$iter"][4:end-3, 1, 4:end-3], iter)
+    t = lift(iter -> file["timeseries/t/$iter"], iter)   # Time elapsed by this iteration
+    str_ft = lift(t -> ft_display(t), t)
+
+    # Calculate the maximum relative vorticity and buoyancy to set the scale for the colourmap
+    ζ_max = 0
+    b_max = maximum(b_ic)
+    b_min = minimum(b_ic)
+    Δb = b_max - b_min
+    for i = Int(round(length(iterations)/10)) : length(iterations)
+        iter[] = iterations[i]
+        ζ_max = max(ζ_max, maximum(ζ_on_f[]*f))
+    end
+    ζ_max = min(ζ_max, 20f)
+
+    iter[] = 0
+    ~, drifters = extract_tracked_drifter_data(label)
+    @info length(iterations)
+    xs = lift(iter_index -> [drifters[i][iter_index].x for i in eachindex(drifters)], iter_index)
+    zs = lift(iter_index -> [drifters[i][iter_index].z for i in eachindex(drifters)], iter_index)
+    xs_dspl = lift(xs -> xs/1kilometer, xs)
+    zs_dspl = lift(zs -> zs, zs)
+
+    @info "Drawing first frame"
+
+    # Create the plot, starting at t = 0
+    # This will be updated as the observable iter is updated
+    fig = Figure(size = (1000, 320))
+    ax_b = Axis(fig[1, 1][1, 1], xlabel = L"$x/\mathrm{km}$", ylabel = L"$z/\mathrm{m}$", title = L"\text{Buoyancy, }b", width = 200, height = 200)
+    ax_ζ = Axis(fig[1, 2][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Vertical vorticity, }\zeta/f", width = 200, height = 200)
+    ax_δ = Axis(fig[1, 3][1, 1], xlabel = L"$x/\mathrm{km}$", title = L"\text{Horizontal divergence, }\delta/f", width = 200, height = 200)
+    hm_b = heatmap!(ax_b, xb/1kilometer, zb, b; colorrange = (b_min - 1.5Δb, b_max + 1.5Δb));
+    hm_ζ = heatmap!(ax_ζ, xζ/1kilometer, zζ, ζ_on_f; colormap = :coolwarm, colorrange = (-ζ_max/f, ζ_max/f))
+    hm_δ = heatmap!(ax_δ, xδ/1kilometer, zδ, δ_on_f; colormap = :coolwarm, colorrange = (-ζ_max/f, ζ_max/f))
+    Colorbar(fig[1, 1][1, 2], hm_b, height = 200)
+    Colorbar(fig[1, 2][1, 2], hm_ζ, height = 200)
+    Colorbar(fig[1, 3][1, 2], hm_δ, height = 200)
+    Makie.Label(fig[0, 1:3], str_ft)
+
+    display(fig)
+    
+    @info "Making an animation from saved data..."
+    CairoMakie.record(i -> iter[] = i,
+           fig,
+           pp_dir(label) * "bζδ-xz_0.mp4",
+           iterations[maximum([Int64(round(length(iterations) * a₁)), 1]) : 2 : Int64(round(length(iterations) * a₂))],
+           framerate = 20)
+
+end
+
+ani_xy_top(label::String) = ani_xy_top(label::String, 0.0, 1.0)
+ani_xz_0(label::String) = ani_xz_0(label::String, 0.0, 1.0)
 
 function ani_zeta_hist(label::String)
 
     check_pp_dir(label)
-    filename_xy_top = data_dir(label) * "BI_xy.jld2"
+    filename_xy_top = data_dir(label) * "BI_xy_top.jld2"
 
     # Now, open the file with our data
     file = jldopen(filename_xy_top)
@@ -161,7 +241,7 @@ end
 function front_detection(label, ∇b_scale = 5e-6, L_scale = 8000)
 
     check_pp_dir(label)
-    filename_xy_top = data_dir(label) * "BI_xy.jld2"
+    filename_xy_top = data_dir(label) * "BI_xy_top.jld2"
 
     # Read in the first iteration. We do this to load the grid
     b_ic = FieldTimeSeries(filename_xy_top, "b", iterations = 0)
