@@ -81,7 +81,7 @@ end
 function run_sim(params, label; pickup = false)
 
     start_time = time_ns()          # (in nanoseconds)
-    wall_time_limit = 5*60*60       # (in seconds)
+    wall_time_limit = 34*60*60       # (in seconds)
 
     doubleoutput("Calculating physical parameters, including initial conditions", label)
     resolution = params.res
