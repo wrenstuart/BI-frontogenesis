@@ -91,8 +91,8 @@ function run_sim(params, label; pickup = false)
     doubleoutput("Calculating least stable mode", label)
     max_Δt = 0.4 * pi / (phys_params.N²^0.5)
     duration = 8 / real(least_stable_mode(params.Ri, 2π/domain.x, 0, rate_only = true))
-    if params.short_duration
-        duration = duration / 20
+    if :duration_multiplier in keys(params)
+        duration *= params.duration_multiplier
     end
 
     doubleoutput("Building the grid", label)

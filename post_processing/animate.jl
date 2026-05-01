@@ -22,7 +22,6 @@ end
 
 function ani_xy_top(label::String, a₁::AbstractFloat, a₂::AbstractFloat)  # Animate b, ζ and δ at surface
 
-    check_pp_dir(label)
     filename_xy_top = data_dir(label) * "BI_xy_top.jld2"
 
     # Read in the first iteration. We do this to load the grid
@@ -92,6 +91,7 @@ function ani_xy_top(label::String, a₁::AbstractFloat, a₂::AbstractFloat)  # 
     display(fig)
     
     @info "Making an animation from saved data..."
+    check_pp_dir(label)
     CairoMakie.record(i -> iter[] = i,
            fig,
            pp_dir(label) * "bζδ-xy_top.mp4",

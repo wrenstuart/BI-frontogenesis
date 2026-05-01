@@ -94,8 +94,4 @@ function evals_with_constraints(A::Matrix, B::Matrix, C::Matrix, removed::Vector
 
 end
 
-function Id_mat(N)
-
-    return [i == j ? 1 : 0 for i = 1 : N, j = 1 : N]
-    
-end
+Id_mat(N) = [i == j ? 1 : 0 for i = 1 : N, j = 1 : N]
